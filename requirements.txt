@@ -1,1 +1,16 @@
 alembic>=1.13,<2.0
+SQLAlchemy>=2.0,<3.0
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.30,<1.0
+psycopg[binary]>=3.2,<4.0
+pydantic-settings>=2.6,<3.0
+openpyxl>=3.1,<4.0
+Pillow>=11.0,<13.0
+httpx>=0.28,<1.0
+itsdangerous>=2.2,<3.0
+pytesseract>=0.3.13,<1.0
+pytest>=8.0,<10.0
+msal>=1.34,<2.0
+cryptography>=44,<47
+python-multipart>=0.0.20,<1.0
+requests>=2.32,<3.0

@@ -42,3 +42,10 @@ dist/
 .DS_Store
 ._*
 Thumbs.db
+
+# Local demo storage and frontend dependencies
+data/
+node_modules/
+*.tsbuildinfo
+playwright-report/
+test-results/

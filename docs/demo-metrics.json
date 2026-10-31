@@ -1,0 +1,44 @@
+{
+  "departments": 5,
+  "employees": 40,
+  "review_periods": 2,
+  "emails": 10,
+  "attachments": 8,
+  "import_batches": 8,
+  "attendance_cases": 60,
+  "case_versions": 61,
+  "evidence_files": 61,
+  "analysis_results": 61,
+  "audit_logs": 29,
+  "processing_jobs": 71,
+  "analysis_categories": {
+    "FORGOT_CHECK": 25,
+    "LEAVE_NOT_RECORDED": 5,
+    "UNKNOWN": 15,
+    "DEVICE_ERROR": 15
+  },
+  "assessments": {
+    "SUFFICIENT": 18,
+    "MISSING": 32,
+    "CONFLICT": 10
+  },
+  "ocr_statuses": {
+    "READABLE": 56,
+    "UNREADABLE": 5
+  },
+  "hr_statuses": {
+    "PENDING_REVIEW": 55,
+    "CONFIRMED": 3,
+    "NEEDS_INFO": 2
+  },
+  "email_statuses": {
+    "NEEDS_REVIEW": 1,
+    "PARTIAL_ERROR": 6,
+    "FAILED": 2,
+    "IMPORTED": 1
+  },
+  "source_rows": 84,
+  "imported_rows": 61,
+  "duplicate_rows": 12,
+  "error_rows": 11
+}

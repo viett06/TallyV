@@ -1,0 +1,65 @@
+{
+  "sheet_name": "DieuChinh",
+  "export_sheet_name": "KetQuaMoPhong",
+  "headers": [
+    "Mã trường hợp",
+    "Mã nhân viên",
+    "Họ tên",
+    "Phòng ban",
+    "Ngày xảy ra",
+    "Ca làm",
+    "Loại lượt thiếu",
+    "Lý do/giải trình",
+    "Bằng chứng"
+  ],
+  "export_headers": [
+    "Mã trường hợp",
+    "Mã nhân viên",
+    "Họ tên",
+    "Phòng ban",
+    "Ngày",
+    "Ca làm",
+    "Loại lượt thiếu",
+    "Giải trình gốc",
+    "Loại lỗi hệ thống",
+    "Đánh giá",
+    "Loại lỗi HR",
+    "Trạng thái HR",
+    "Ghi chú HR",
+    "Người xác nhận",
+    "Thời điểm xác nhận",
+    "Kỳ rà soát",
+    "Email nguồn",
+    "File nguồn",
+    "Sheet",
+    "Dòng",
+    "Ngày gửi đợt (thứ Bảy)",
+    "Ngày tổng hợp (thứ Hai)"
+  ],
+  "punch_types": {
+    "check_in": "Giờ vào",
+    "check_out": "Giờ ra",
+    "not_applicable": "Không áp dụng"
+  },
+  "classification_keywords": {
+    "FORGOT_CHECK": [
+      "quen cham",
+      "quen quet",
+      "quen bam"
+    ],
+    "DEVICE_ERROR": [
+      "loi may",
+      "loi he thong",
+      "may hong",
+      "khong ghi nhan"
+    ],
+    "LEAVE_NOT_RECORDED": [
+      "nghi phep",
+      "don phep",
+      "phep chua"
+    ]
+  },
+  "character_substitutions": {
+    "đ": "d"
+  }
+}

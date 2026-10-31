@@ -1,16 +1,28 @@
-# This is a sample Python script.
+"""FastAPI composition root; workflows live in app.services."""
 
-# Press ⌃R to execute it or replace it with your code.
-# Press Double ⇧ to search everywhere for classes, files, tool windows, actions, and settings.
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+
+from app.api import router
+from app.core.config import ROOT
+from app.core.errors import AppError
+from app.core.middleware import local_security
 
 
-def print_hi(name):
-    # Use a breakpoint in the code line below to debug your script.
-    print(f'Hi, {name}')  # Press ⌘F8 to toggle the breakpoint.
+def create_app() -> FastAPI:
+    application = FastAPI(title="TallyV - Attendance review", docs_url=None, redoc_url=None, openapi_url=None)
+    application.middleware("http")(local_security)
+
+    @application.exception_handler(AppError)
+    async def application_error(request: Request, error: AppError):
+        return JSONResponse({"detail": error.detail}, status_code=error.status_code)
+
+    application.include_router(router)
+    frontend = ROOT / "frontend" / "dist"
+    if frontend.is_dir():
+        application.mount("/", StaticFiles(directory=frontend, html=True), name="frontend")
+    return application
 
 
-# Press the green button in the gutter to run the script.
-if __name__ == '__main__':
-    print_hi('PyCharm')
-
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
+app = create_app()

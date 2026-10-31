@@ -1,0 +1,56 @@
+{
+  "scope": "DỮ LIỆU MÔ PHỎNG – không suy diễn độ chính xác với dữ liệu bệnh viện thật",
+  "classification_only": true,
+  "groups": {
+    "ambiguous": {
+      "total": 5,
+      "correct": 5
+    },
+    "complete_device": {
+      "total": 5,
+      "correct": 5
+    },
+    "complete_forgot": {
+      "total": 5,
+      "correct": 5
+    },
+    "complete_leave": {
+      "total": 5,
+      "correct": 5
+    },
+    "date_conflict": {
+      "total": 5,
+      "correct": 5
+    },
+    "employee_conflict": {
+      "total": 5,
+      "correct": 5
+    },
+    "missing_explanation": {
+      "total": 5,
+      "correct": 5
+    },
+    "missing_image": {
+      "total": 5,
+      "correct": 5
+    },
+    "missing_shift_punch": {
+      "total": 5,
+      "correct": 5
+    },
+    "multiple_images": {
+      "total": 5,
+      "correct": 5
+    },
+    "out_of_scope": {
+      "total": 5,
+      "correct": 5
+    },
+    "unreadable": {
+      "total": 5,
+      "correct": 5
+    }
+  },
+  "total": 60,
+  "correct": 60
+}

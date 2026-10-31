@@ -1,0 +1,17 @@
+.git
+.env
+.env.*
+!.env.example
+.idea
+venv
+.venv
+data
+frontend/node_modules
+frontend/dist
+__pycache__
+.pytest_cache
+tests
+
+**/__pycache__
+**/*.py[cod]
+.ruff_cache

@@ -1,0 +1,4 @@
+# Use with compose.yaml when the worker must reach Microsoft Graph or Composio.
+services:
+  worker:
+    networks: [internal, access]

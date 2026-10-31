@@ -1,0 +1,78 @@
+services:
+  db:
+    restart: unless-stopped
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tallyv
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run scripts/init_env.py first}
+      POSTGRES_DB: tallyv
+    ports: ["127.0.0.1:54329:5432"]
+    volumes: ["postgres_data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tallyv -d tallyv"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    networks: [internal, access]
+  mailpit:
+    restart: unless-stopped
+    image: axllent/mailpit:v1.27
+    environment:
+      MP_DATABASE: /data/mailpit.db
+      MP_DISABLE_VERSION_CHECK: "true"
+      MP_BLOCK_REMOTE_CSS_AND_FONTS: "true"
+      MP_MAX_MESSAGES: "1000"
+    ports: ["127.0.0.1:8025:8025", "127.0.0.1:1025:1025"]
+    volumes: ["mail_data:/data"]
+    networks: [internal, access]
+  api:
+    restart: unless-stopped
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://tallyv:${POSTGRES_PASSWORD}@db:5432/tallyv
+      MAILPIT_URL: http://mailpit:8025
+      SMTP_HOST: mailpit
+      STORAGE_DIR: /app/data
+      OCR_ENABLED: "${OCR_ENABLED:-true}"
+    command: ["sh", "-c", "alembic upgrade head && python -m scripts.seed_catalog && uvicorn main:app --host 0.0.0.0 --port 8000 --no-access-log"]
+    depends_on:
+      db: {condition: service_healthy}
+      mailpit: {condition: service_started}
+    ports: ["127.0.0.1:8000:8000"]
+    volumes: ["file_data:/app/data"]
+    networks: [internal, access]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+  worker:
+    restart: unless-stopped
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://tallyv:${POSTGRES_PASSWORD}@db:5432/tallyv
+      MAILPIT_URL: http://mailpit:8025
+      SMTP_HOST: mailpit
+      STORAGE_DIR: /app/data
+      OCR_ENABLED: "${OCR_ENABLED:-true}"
+    command: ["python", "-m", "app.worker"]
+    depends_on:
+      api: {condition: service_healthy}
+    volumes: ["file_data:/app/data"]
+    networks: [internal]
+  ollama:
+    image: ollama/ollama:0.13.5
+    profiles: [llm]
+    volumes: ["ollama_data:/root/.ollama"]
+    networks: [internal]
+networks:
+  access: {}
+  internal:
+    internal: true
+volumes:
+  postgres_data:
+  file_data:
+  mail_data:
+  ollama_data:
