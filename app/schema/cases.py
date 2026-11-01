@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from app.core.config import settings
 from app.schema.common import IsoDateTime, View
+from app.schema.hr import HrSubmissionView
 
 CycleFilter = date | Literal["", "unassigned"]
 
@@ -91,6 +92,7 @@ class CaseView(View):
     evidence_count: int
     bulk_eligible: bool
     proposed_count: int
+    hr_submission: HrSubmissionView | None = None
 
 
 class CaseListView(BaseModel):

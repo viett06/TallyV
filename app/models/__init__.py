@@ -10,7 +10,9 @@ from app.models.departments import Department, DepartmentSender
 from app.models.emails import Email
 from app.models.employees import Employee
 from app.models.evidence_files import EvidenceFile
+from app.models.hr_submissions import HrSubmission
 from app.models.import_batches import ImportBatch
+from app.models.mock_hr import MockHrAttendance, MockHrReceipt
 from app.models.outlook_connections import OutlookAuthFlow, OutlookConnection
 from app.models.processing_jobs import ProcessingJob
 from app.models.review_periods import ReviewPeriod
@@ -34,4 +36,7 @@ __all__ = [
     "DemoRule",
     "OutlookConnection",
     "OutlookAuthFlow",
+    "HrSubmission",
+    "MockHrAttendance",
+    "MockHrReceipt",
 ]

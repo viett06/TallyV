@@ -9,6 +9,7 @@ from app.core.errors import AppError, MailboxReauthenticationRequired
 from app.core.i18n import message
 from app.core.time import utcnow
 from app.crud import cases as case_crud
+from app.crud import hr as hr_crud
 from app.crud import jobs as job_crud
 from app.crud import outlook as outlook_crud
 from app.crud.emails import get_email
@@ -16,6 +17,7 @@ from app.crud.jobs import enqueue
 from app.db.session import SessionLocal
 from app.services import mailbox
 from app.services.analysis import analyze
+from app.services.hr import process_submission
 from app.services.imports import process_email
 
 logger = logging.getLogger("tallyv.worker")
@@ -62,6 +64,8 @@ def run_one():
                 process_email(db, job.payload["email_id"])
             elif job.kind == "ANALYZE":
                 analyze(db, job.payload["version_id"])
+            elif job.kind == "HR_SUBMIT":
+                process_submission(db, job.payload["submission_id"])
             else:
                 raise ValueError("Unknown job kind")
             job.status, job.error, job.locked_at = "DONE", None, None
@@ -93,6 +97,11 @@ def run_one():
                 if result:
                     result.status = "FAILED" if job.status == "FAILED" else "PENDING"
                     result.error = job.error
+            elif job.kind == "HR_SUBMIT":
+                submission = hr_crud.get_submission(db, job.payload["submission_id"])
+                if submission and submission.status == "QUEUED":
+                    submission.status = "FAILED" if job.status == "FAILED" else "QUEUED"
+                    submission.error = job.error
             db.commit()
     return True
 

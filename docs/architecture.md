@@ -53,6 +53,8 @@ Health endpoint chỉ thực hiện probe database qua CRUD; không có quy trì
 - `services/email_provider.py`: EmailProvider interface và Mailpit adapter nội bộ.
 - `services/auth.py`: kiểm tra tài khoản, giới hạn thử đăng nhập, giải mã session và kiểm tra role. `api/deps.py` chuyển cookie HTTP thành lời gọi nghiệp vụ.
 - `services/security.py`: password hash/verify và session signer. `services/storage.py`: lưu UUID, hash và kiểm tra đường dẫn local.
+- `services/hr.py`: chuẩn bị giá trị điều chỉnh, kiểm tra kết luận/phiên bản, tạo yêu cầu bất biến, gửi từ worker và lưu audit/biên nhận. `services/hr_connector.py` chỉ phụ trách HTTP đến HR mô phỏng.
+- `hr_mock_app.py` và `services/mock_hr.py`: dịch vụ đích chạy riêng, sở hữu bảng công/biên nhận mô phỏng, khóa revision và khóa chống gửi trùng. Bản demo dùng chung PostgreSQL nhưng TallyV chỉ truy cập đích qua HTTP. Giao diện hiện chỉ giữ bảng công để tham khảo; màn hình gửi điều chỉnh đã bỏ theo phạm vi mới. Backend thử nghiệm gửi sửa giờ còn được giữ để tránh xóa dữ liệu, nhưng không phải mô hình tích hợp SAP đã được chấp nhận. Xem [phạm vi SAP](sap-demo.md).
 
 ## Transaction và lỗi
 

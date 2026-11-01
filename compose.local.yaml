@@ -1,7 +1,13 @@
 # Local API (e.g. PyCharm/uvicorn) with a Docker worker.
 # Keep application code and stored attachments shared with the host API.
-# docker compose -f compose.yaml -f compose.outlook.yaml -f compose.local.yaml up -d --no-deps worker
+# docker compose -f compose.yaml -f compose.outlook.yaml -f compose.local.yaml up -d --no-deps hr-mock worker
 services:
+  hr-mock:
+    # Reuse the existing worker image; source mounts load the new simulator code.
+    image: tallyv-worker
+    volumes:
+      - ./app:/app/app:ro
+      - ./hr_mock_app.py:/app/hr_mock_app.py:ro
   worker:
     volumes:
       - ./app:/app/app:ro

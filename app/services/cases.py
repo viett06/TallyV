@@ -6,6 +6,7 @@ from app.core.serialization import json_value
 from app.core.serialization import model_dict as record
 from app.core.time import utcnow
 from app.crud import cases as case_crud
+from app.crud import hr as hr_crud
 from app.crud import jobs as job_crud
 from app.models import AuditLog, User
 from app.schema.cases import BulkConfirmRequest, CaseFilters, CaseReviewRequest, VersionDecisionRequest
@@ -42,6 +43,7 @@ def case_item(db: Session, row) -> dict:
         "evidence_count": evidence_count,
         "bulk_eligible": eligible(db, case, result),
         "proposed_count": case_crud.proposed_count(db, case.id),
+        "hr_submission": record(hr_crud.latest_submission(db, case.id)),
     }
 
 

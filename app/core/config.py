@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     outlook_redirect_uri: str = "http://localhost:8000/api/outlook/callback"
     outlook_sync_days: int = 90
     outlook_test_mode: bool = True
+    hr_mock_url: str = "http://127.0.0.1:8010"
+    hr_mock_api_key: SecretStr = SecretStr("")
 
     @model_validator(mode="after")
     def synthetic_composio_only(self):
@@ -117,12 +119,12 @@ class Settings(BaseSettings):
             raise ValueError("Unknown processing mode")
         return value
 
-    @field_validator("mailpit_url", "ollama_url")
+    @field_validator("mailpit_url", "ollama_url", "hr_mock_url")
     @classmethod
     def internal_url(cls, value):
         parsed = urlparse(value)
         host = parsed.hostname or ""
-        allowed = host in {"localhost", "mailpit", "ollama", "host.docker.internal"}
+        allowed = host in {"localhost", "mailpit", "ollama", "hr-mock", "host.docker.internal"}
         try:
             address = ipaddress.ip_address(host)
             allowed = address.is_loopback or address.is_private

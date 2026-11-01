@@ -87,10 +87,15 @@ def list_jobs(db: Session) -> list[dict]:
     return [record(j) for j in job_crud.list_jobs(db)]
 
 
-def retry_job(db: Session, job_id: int) -> dict:
+def retry_job(db: Session, job_id: int, user: User) -> dict:
     job = job_crud.get_job(db, job_id)
     if not job or job.status != "FAILED":
         raise AppError(409, message("jobs.retry_requires_failure"))
+    if job.kind == "HR_SUBMIT":
+        from app.services.hr import retry
+
+        retry(db, job.payload["submission_id"], user)
+        return {"ok": True}
     job.status, job.attempts, job.error, job.available_at = "PENDING", 0, None, utcnow()
     if job.kind == "ANALYZE":
         result = case_crud.get_analysis(db, job.payload["version_id"])

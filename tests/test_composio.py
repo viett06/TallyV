@@ -33,7 +33,7 @@ SUBJECT = "[TALLYV-MVP] [DCC] [2026-11] [WEEK:2026-10-31] Synthetic department s
 CHECKPOINT = "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$deltatoken=complete"
 
 
-def test_hr_can_rescan_a_window_and_monitor_real_intake_without_duplicates(composio, backend, monkeypatch):
+def test_outlook_demo_flow_import_manual_analysis_hr_review_and_export(composio, backend, monkeypatch):
     from app import worker
 
     sessions, client = composio
@@ -74,6 +74,40 @@ def test_hr_can_rescan_a_window_and_monitor_real_intake_without_duplicates(compo
     status = client.get("/api/outlook").json()
     assert status["sync_summary"] == {"scanned": 4, "matched": 1, "new": 0, "existing": 1}
     assert client.get("/api/cases", params={"source": "outlook"}).json()["total"] == 1
+
+    # Continue the same imported case through HR review and the final workbook.
+    case_id = imported["id"]
+    detail = client.get(f"/api/cases/{case_id}").json()
+    assert detail["analysis"]["status"] == "COMPLETED"
+    assert detail["analysis"]["category"] == "FORGOT_CHECK"
+    assert detail["analysis"]["assessment"] == "MISSING"  # This fixture has no evidence image.
+    assert detail["hr_status"] == "PENDING_REVIEW"
+    assert (
+        client.patch(
+            f"/api/cases/{case_id}/review",
+            json={"category": "FORGOT_CHECK", "status": "NEEDS_INFO", "note": "Cần bổ sung ảnh bằng chứng mô phỏng."},
+        ).status_code
+        == 200
+    )
+    decision = {"category": "FORGOT_CHECK", "status": "CONFIRMED", "note": "Xác nhận ngoại lệ trong kịch bản demo."}
+    assert client.patch(f"/api/cases/{case_id}/review", json=decision).status_code == 422
+    decision.update(acknowledge_exception=True, override_reason=message("tests.exception_reason"))
+    assert client.patch(f"/api/cases/{case_id}/review", json=decision).status_code == 200
+    detail = client.get(f"/api/cases/{case_id}").json()
+    assert detail["hr_status"] == "CONFIRMED" and detail["confirmed_by"] == "hr.demo"
+    reviews = [entry for entry in detail["audit"] if entry["action"] == "HR_REVIEW"]
+    assert {entry["after"]["hr_status"] for entry in reviews} == {"NEEDS_INFO", "CONFIRMED"}
+    assert any(entry["action"] == "ANALYSIS_REQUESTED" for entry in detail["audit"])
+    response = client.get("/api/export?source=outlook&period=2026-11&cycle=2026-10-31&hr_status=CONFIRMED")
+    assert response.status_code == 200
+    sheet = load_workbook(BytesIO(response.content)).active
+    assert sheet.max_row == 2
+    assert sheet.cell(2, 1).value == detail["code"]
+    assert sheet.cell(2, 9).value == "FORGOT_CHECK"
+    assert sheet.cell(2, 10).value == "MISSING"
+    assert sheet.cell(2, 12).value == "CONFIRMED"
+    assert sheet.cell(2, 14).value == "hr.demo"
+    assert sheet.cell(2, 16).value == "2026-11"
 
 
 def test_rescan_resumes_pagination_and_repeated_clicks_preserve_the_active_scan(composio, backend, monkeypatch):

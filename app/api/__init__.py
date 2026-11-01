@@ -2,8 +2,8 @@
 
 from fastapi import APIRouter
 
-from app.api import auth, cases, catalog, emails, files, health, jobs, outlook, rules
+from app.api import auth, cases, catalog, emails, files, health, hr, jobs, outlook, rules
 
 router = APIRouter(prefix="/api")
-for feature in (health, auth, catalog, cases, emails, files, jobs, outlook, rules):
+for feature in (health, auth, catalog, cases, emails, files, jobs, outlook, rules, hr):
     router.include_router(feature.router)

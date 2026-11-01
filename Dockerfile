@@ -14,7 +14,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
 COPY scripts ./scripts
 COPY alembic ./alembic
-COPY alembic.ini main.py ./
+COPY alembic.ini main.py hr_mock_app.py ./
 COPY --from=frontend /web/dist ./frontend/dist
 RUN useradd --uid 10001 --create-home demo && mkdir -p /app/data && chown -R demo:demo /app/data
 USER demo

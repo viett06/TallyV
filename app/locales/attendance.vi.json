@@ -61,5 +61,19 @@
   },
   "character_substitutions": {
     "đ": "d"
+  },
+  "hr_demo_shifts": {
+    "AM": {
+      "check_in": "08:00",
+      "check_out": "16:00"
+    },
+    "PM": {
+      "check_in": "13:00",
+      "check_out": "21:00"
+    },
+    "Ca sáng": {
+      "check_in": "08:00",
+      "check_out": "16:00"
+    }
   }
 }

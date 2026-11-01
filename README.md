@@ -1,6 +1,12 @@
 # TallyV — MVP rà soát điều chỉnh chấm công
 
-Ứng dụng nghiệp vụ HR bằng tiếng Việt, hỗ trợ hộp thư Outlook thử nghiệm của người phát triển và chế độ Mailpit dành riêng cho dữ liệu mô phỏng. Không cập nhật SAP.
+Ứng dụng nghiệp vụ HR bằng tiếng Việt, hỗ trợ hộp thư Outlook thử nghiệm của người phát triển và chế độ Mailpit dành riêng cho dữ liệu mô phỏng. Quy trình hiện tại: tiếp nhận email/Excel → đánh giá và phân loại khi HR bấm nút → HR rà soát, xác nhận và xuất kết quả. Chưa kết nối SAP thật.
+
+## Phạm vi tích hợp SAP
+
+Hiện tại TallyV chỉ **tổng hợp, đánh giá và phân loại** để HR dùng kết quả và nhập nghiệp vụ lên SAP. Mục tiêu sau này là tích hợp **TallyV thành module/ứng dụng mở rộng trong SAP**, rồi **tự động hóa phần nhập SAP sau khi HR kiểm tra và xác nhận**. Mỗi kiểu case sai công số có thể cần cách nhập, trường dữ liệu và thao tác SAP khác nhau; cần mô tả và ánh xạ đúng từng trường hợp. Không quy bài toán này thành sửa giờ vào/ra bằng một API chung. Việc dựng một cổng giả lập hay gửi sửa giờ sang dịch vụ HR riêng không được coi là đã đạt mục tiêu tích hợp.
+
+Trong lúc chưa đăng ký được môi trường SAP, tạm giữ **Bảng công mô phỏng** để xem dữ liệu mẫu. Cổng ứng dụng demo và màn hình gửi điều chỉnh từ TallyV đã được bỏ khỏi giao diện. Xem [phạm vi và trạng thái tích hợp SAP](docs/sap-demo.md).
 
 ## Kết nối Outlook cho MVP
 
@@ -38,7 +44,7 @@ Mở **http://127.0.0.1:8000**, đăng nhập `hr.demo` bằng `DEMO_PASSWORD` t
 3. **1:30–2:15** Mở Hộp thư: khoa 1 có dòng ngày mơ hồ và ảnh sai anchor; file sai mẫu; email không Excel; email ngoài phạm vi. Xem số dòng nguồn = nhập + trùng + dòng lỗi. Lỗi liên kết ảnh cấp file được báo riêng. Nhấn Đồng bộ nhiều lần: không tạo trùng.
 4. **2:15–3:15** Mở MP-1-001: so sánh bản gốc với bản sửa, ghi lý do và giữ/áp dụng phiên bản. Xem MP-1-007/008 có ngày/mã nhân viên trong ảnh không khớp. MP-1-006 có ảnh không đọc được. MP-1-012 có hai ảnh cùng dòng.
 5. **3:15–4:15** HR sửa phân loại, đánh dấu cần bổ sung kèm lý do. Lọc Đủ theo quy tắc demo, chọn dòng và xác nhận lô sau hộp xác nhận. Dòng ngoại lệ không chọn được; backend kiểm tra lại, giao dịch duyệt lô là toàn bộ hoặc không có dòng nào.
-6. **4:15–5:00** Xem lịch sử ai sửa gì/khi nào/lý do. Lọc kỳ, trạng thái rồi Xuất Excel. Kết quả không cập nhật SAP.
+6. **4:15–5:00** Xem lịch sử ai sửa gì/khi nào/lý do. Lọc kỳ, trạng thái rồi Xuất Excel. Xác nhận trong TallyV là kết quả rà soát; cập nhật công số sẽ thực hiện trong SAP khi có môi trường tích hợp.
 
 ## Cấu trúc
 
@@ -46,6 +52,7 @@ Backend được tổ chức theo các folder trong `app/`, tham khảo cách t�
 
 ```text
 main.py                  # Tạo FastAPI app, middleware, error handler, ghép router
+hr_mock_app.py           # API HR mô phỏng chạy riêng tại cổng 8010
 app/
   api/                   # Router theo tính năng + dependencies HTTP
   schema/                # Pydantic request, response, bộ lọc, schema phân loại
@@ -160,6 +167,8 @@ python -m scripts.seed_catalog
 uvicorn main:app --host 127.0.0.1 --port 8000 --no-access-log
 # Terminal khác, không chạy đồng thời worker Docker:
 python -m app.worker
+# Terminal khác, nếu không chạy dịch vụ hr-mock bằng Docker:
+uvicorn hr_mock_app:app --host 127.0.0.1 --port 8010 --no-access-log
 # Frontend khi phát triển: cd frontend && npm run dev
 ```
 
@@ -168,7 +177,7 @@ Local Python cần Tesseract riêng nếu bật OCR; không có thì UI báo c�
 Nếu chạy API bằng PyCharm/uvicorn trên máy nhưng dùng worker Docker cho Outlook, dùng override để worker đọc cùng mã nguồn và lưu file vào `./data`, cùng thư mục với API local:
 
 ```bash
-docker compose -f compose.yaml -f compose.outlook.yaml -f compose.local.yaml up -d --no-deps worker
+docker compose -f compose.yaml -f compose.outlook.yaml -f compose.local.yaml up -d --no-deps hr-mock worker
 ```
 
 Không chạy thêm worker Python cùng lúc. Khi đổi từ named volume Docker sang thư mục local, cần sao chép dữ liệu cũ từ `/app/data` của worker trước khi tạo lại container; giữ nguyên tên file và kiểm tra hash để các bản ghi đã tiếp nhận vẫn đọc được. Sau khi sửa mã Python, khởi động lại worker Docker để nạp mã mới. Khi trở lại chạy toàn bộ bằng Docker, bỏ override local và chuyển các file mới về named volume trước khi khởi động API/worker.

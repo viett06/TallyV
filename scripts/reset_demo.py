@@ -20,7 +20,7 @@ def reset(confirmed):
             raise SystemExit("Stop the worker before resetting demo data.")
         db.execute(
             text(
-                "TRUNCATE analysis_results, evidence_files, audit_logs, case_versions, attendance_cases, import_batches, attachments, emails, processing_jobs RESTART IDENTITY CASCADE"
+                "TRUNCATE hr_submissions, mock_hr_receipts, mock_hr_attendance, analysis_results, evidence_files, audit_logs, case_versions, attendance_cases, import_batches, attachments, emails, processing_jobs RESTART IDENTITY CASCADE"
             )
         )
         db.commit()

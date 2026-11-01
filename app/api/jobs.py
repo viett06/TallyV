@@ -43,4 +43,4 @@ def list_jobs(db: DBSession, user: HRUser):
 
 @router.post("/jobs/{job_id}/retry", response_model=OperationResult)
 def retry(job_id: int, db: DBSession, user: HRUser):
-    return jobs.retry_job(db, job_id)
+    return jobs.retry_job(db, job_id, user)
