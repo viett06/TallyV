@@ -1,0 +1,9 @@
+# OCR dependencies shared by the native and Docker CPU runtimes (Python 3.11).
+# Install paddlepaddle==3.3.0 first using Paddle's official CPU package index.
+paddleocr==3.7.0
+paddlex[ocr-core]==3.7.0
+fastapi>=0.115,<1.0
+uvicorn>=0.30,<1.0
+python-multipart>=0.0.20,<1.0
+pydantic>=2.6,<3.0
+Pillow>=11.0,<13.0

@@ -5,6 +5,7 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .cache/
+.pdx-cache/
 .coverage
 .coverage.*
 htmlcov/
@@ -12,7 +13,9 @@ coverage.xml
 
 # Virtual environments
 .venv/
+.venv-*/
 venv/
+venv-*/
 env/
 ENV/
 
@@ -35,6 +38,7 @@ dist/
 *.egg-info/
 *.egg
 *.log
+/output/
 
 # Editors and operating systems
 .idea/
@@ -42,6 +46,9 @@ dist/
 .DS_Store
 ._*
 Thumbs.db
+*.swp
+*.swo
+*~
 
 # Local demo storage and frontend dependencies
 data/

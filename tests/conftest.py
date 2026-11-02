@@ -4,6 +4,7 @@ os.environ["SECRET_KEY"] = "test-only-secret-000000000000000000000000"
 os.environ["DEMO_PASSWORD"] = "Test-demo-password"
 os.environ["DATABASE_URL"] = "sqlite://"
 os.environ["OCR_ENABLED"] = "false"
+os.environ["OCR_BACKEND"] = "tesseract"
 
 import pytest
 from fastapi.testclient import TestClient
@@ -22,6 +23,7 @@ from main import app
 def context(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "storage_dir", tmp_path)
     monkeypatch.setattr(settings, "ocr_enabled", False)
+    monkeypatch.setattr(settings, "ocr_backend", "tesseract")
     monkeypatch.setattr(settings, "processing_mode", "RULE_BASED")
     monkeypatch.setattr(settings, "mail_provider", "mailpit")
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)

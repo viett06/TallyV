@@ -4,7 +4,7 @@ from typing import Literal
 from urllib.parse import urlparse
 from uuid import UUID
 
-from pydantic import SecretStr, field_validator, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     ollama_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "qwen2.5:7b"
     ocr_enabled: bool = False
+    ocr_backend: Literal["tesseract", "http"] = "tesseract"
+    ocr_api_url: str = "http://127.0.0.1:8001"
+    ocr_api_timeout: float = Field(default=30, gt=0, le=120, allow_inf_nan=False)
     sync_interval: int = 30
     allowed_origins: str = "http://127.0.0.1:8000,http://localhost:8000,http://127.0.0.1:5173,http://localhost:5173"
     cookie_secure: bool = False
@@ -119,7 +122,7 @@ class Settings(BaseSettings):
             raise ValueError("Unknown processing mode")
         return value
 
-    @field_validator("mailpit_url", "ollama_url", "hr_mock_url")
+    @field_validator("mailpit_url", "ollama_url", "hr_mock_url", "ocr_api_url")
     @classmethod
     def internal_url(cls, value):
         parsed = urlparse(value)

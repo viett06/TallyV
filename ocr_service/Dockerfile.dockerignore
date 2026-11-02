@@ -1,0 +1,7 @@
+# This Dockerfile only needs the OCR source and dependency list.
+**
+!requirements-ocr.txt
+!ocr_service/
+ocr_service/*
+!ocr_service/__init__.py
+!ocr_service/app.py

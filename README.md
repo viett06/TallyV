@@ -100,6 +100,14 @@ Sheet `DieuChinh` cần đúng 9 cột theo thứ tự:
 
 ## OCR local
 
+TallyV có thể gọi dịch vụ PP-OCRv6 small chạy riêng qua HTTP. Xem [cách chạy OCR API và cấu hình TallyV](docs/ocr-api.md). Chọn `OCR_BACKEND=http` để gọi dịch vụ; mặc định `tesseract` giữ engine có sẵn. API lỗi thì OCR báo không khả dụng, không tự chuyển engine.
+
+Phạm vi đầu vào đã làm rõ gồm ảnh quét mặt vào tòa nhà, ảnh camera tại nơi làm việc và điện thoại chụp máy bị lỗi. Bản Tesseract hiện tại chưa xử lý đầy đủ các dạng ảnh này; cần kết hợp đọc chữ và hiểu nội dung ảnh. Xem [yêu cầu bằng chứng ảnh và giới hạn hiện tại](docs/evidence-images.md).
+
+Xem [nghiên cứu model OCR/hiểu ảnh tự vận hành](docs/self-hosted-evidence-models-research.md) về ứng viên, giấy phép, tài nguyên và ranh giới bảo mật. PP-OCRv6 small hiện có adapter HTTP; các đề xuất model khác chưa được tích hợp và chưa có benchmark chất lượng trên dữ liệu bệnh viện.
+
+[Hướng dẫn self-host PP-OCRv6 small](docs/self-host-ppocrv6-small.md) có các bước cài CPU, tải weights, chạy bằng model local và cách quyết định có cần fine-tune hay không. Hướng dẫn chưa được chạy xác nhận trên máy đích.
+
 Docker image cài Tesseract + ngôn ngữ eng/vie trước khi chạy. Mặc định `OCR_ENABLED=true`, không cần tải model. Ảnh mẫu chứa mã MPxxx, ngày ISO và trạng thái chữ rõ để kiểm tra trích xuất bằng Tesseract thật. Bộ đối chiếu MVP dùng chữ English trong ảnh mẫu; không tuyên bố hỗ trợ mọi ảnh tiếng Việt thực tế.
 
 - Tắt: `OCR_ENABLED=false` trong `.env`, `docker compose up -d --force-recreate api worker`.
