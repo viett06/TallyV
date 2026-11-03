@@ -1,0 +1,19 @@
+services:
+  tallyv-ocr:
+    image: tallyv-ocr:local
+    container_name: tallyv-ocr
+    restart: unless-stopped
+
+    ports:
+      - "8001:8001"
+
+    environment:
+      OCR_SERVICE_MODELS_DIR: /models
+      OCR_SERVICE_CPU_THREADS: "4"
+
+      HF_HUB_OFFLINE: "1"
+      HF_HUB_DISABLE_TELEMETRY: "1"
+      PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
+
+    volumes:
+      - ../../tallyv-ocr/models:/models:ro
