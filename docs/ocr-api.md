@@ -10,6 +10,52 @@ Chỉ nhận ảnh PNG/JPEG, mặc định tối đa 8 MiB và 16 triệu pixel.
 
 API dùng trên loopback cho demo, chưa có xác thực hoặc giới hạn tải ở gateway. Không đưa cổng này ra Internet. Kiểm tra đường dẫn model local và tắt kiểm tra nguồn không thay thế firewall hay kiểm chứng chạy offline.
 
+## Chuẩn bị model local
+
+Git chỉ lưu mã dịch vụ, cấu hình chạy và checksum; thư mục `ocr_service/models/` chứa model tải về được ignore. Bộ model mặc định dùng khi chạy native hoặc Compose nằm tại `../tallyv-ocr/models/`, bên ngoài repo. Không cần chép thêm weights vào repo.
+
+Bộ model đã đối chiếu với kho PaddlePaddle trên Hugging Face:
+
+| Model | Revision cố định |
+| --- | --- |
+| [PP-OCRv6_small_det](https://huggingface.co/PaddlePaddle/PP-OCRv6_small_det/tree/106c97591b235f607453300d9fc8c1cad1b25488) | `106c97591b235f607453300d9fc8c1cad1b25488` |
+| [PP-OCRv6_small_rec](https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec/tree/bd619643acac4b9650c040234da8d944476ee3f1) | `bd619643acac4b9650c040234da8d944476ee3f1` |
+
+Mỗi model cần ba file: `inference.json`, `inference.pdiparams`, `inference.yml`. Checksum SHA-256 của cả sáu file được lưu tại [`ocr_service/models.sha256`](../ocr_service/models.sha256).
+
+Nếu máy đã có model, chỉ kiểm tra checksum từ thư mục gốc repo:
+
+```bash
+repo_dir="$PWD"
+models_dir="$repo_dir/../tallyv-ocr/models"
+(cd "$models_dir" && shasum -a 256 -c "$repo_dir/ocr_service/models.sha256")
+```
+
+Trên máy mới, chạy khối Bash sau từ thư mục gốc repo để tải đúng revision và kiểm tra toàn bộ file. Chỉ bước chuẩn bị này cần Internet; không chạy lại bước tải khi dịch vụ đang sử dụng model.
+
+```bash
+set -euo pipefail
+repo_dir="$PWD"
+models_dir="$repo_dir/../tallyv-ocr/models"
+for model in PP-OCRv6_small_det PP-OCRv6_small_rec; do
+    case "$model" in
+        PP-OCRv6_small_det) revision=106c97591b235f607453300d9fc8c1cad1b25488 ;;
+        PP-OCRv6_small_rec) revision=bd619643acac4b9650c040234da8d944476ee3f1 ;;
+    esac
+    mkdir -p "$models_dir/$model"
+    for filename in inference.json inference.pdiparams inference.yml; do
+        curl --fail --location --retry 3 \
+            "https://huggingface.co/PaddlePaddle/$model/resolve/$revision/$filename" \
+            --output "$models_dir/$model/$filename"
+    done
+done
+(cd "$models_dir" && shasum -a 256 -c "$repo_dir/ocr_service/models.sha256")
+```
+
+Chỉ khởi động OCR khi cả sáu file đều báo `OK`. Nếu chọn thư mục model khác, thay `models_dir` khi chuẩn bị và đặt `OCR_SERVICE_MODELS_DIR` khi chạy native hoặc sửa bind mount của container tương ứng. Khi nâng cấp model, cập nhật cả revision và checksum có chủ đích.
+
+Weights từng được commit vẫn còn trong lịch sử Git. Việc ignore và bỏ theo dõi chỉ áp dụng cho các commit tiếp theo, không viết lại lịch sử hoặc xóa file model trên máy.
+
 ## Khởi động bằng môi trường bạn đã chuẩn bị
 
 Giữ nguyên hai thư mục weights trong `../tallyv-ocr/models/` và môi trường `../tallyv-ocr/venv/`. Dừng API thử cũ bằng Ctrl+C trong Terminal đang chạy nó, rồi chạy:
