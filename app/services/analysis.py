@@ -14,7 +14,7 @@ from app.crud import catalog as catalog_crud
 from app.models import AnalysisResult, EvidenceFile
 from app.schema.analysis import Suggestion
 from app.services.ocr import read_text
-from app.services.storage import stored_path
+from app.services.storage import read_bytes
 
 CATEGORIES = ("FORGOT_CHECK", "DEVICE_ERROR", "LEAVE_NOT_RECORDED", "UNKNOWN")
 
@@ -76,7 +76,7 @@ def read_evidence(evidence: EvidenceFile, data: dict[str, str]) -> None:
         evidence.checks = [message("evidence.ocr_disabled")]
         return
     try:
-        text = read_text(stored_path(evidence.path))
+        text = read_text(read_bytes(evidence.path))
         evidence.ocr_text = text[:12000]
         evidence.ocr_status = "READABLE" if len(text.strip()) >= 8 else "UNREADABLE"
         employee = re.search(r"MP\s*([0-9O]{3})(?![0-9A-Za-z])", text, re.I)

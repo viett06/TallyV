@@ -80,7 +80,7 @@ The UI scopes lists, dashboard and export to Outlook, preserving but excluding e
 
 ## Local test mailbox
 
-Set `MAIL_PROVIDER=mailpit` and restart API/worker to use Mailpit and the synthetic generators. Demo buttons are disabled by the backend in Outlook mode. Do not use the Outlook network override for a demo-only worker if network isolation is desired.
+Mailpit is not part of the default Outlook/Composio stack. To run the optional synthetic demo, use `docker compose -f compose.yaml -f compose.demo.yaml up -d --build`; the overlay sets `MAIL_PROVIDER=mailpit` for API/worker and starts Mailpit. For native API/worker, also set `MAIL_PROVIDER=mailpit` in `.env` and restart those processes. Demo buttons are disabled by the backend in Outlook mode. Do not use the Outlook network override for a demo-only worker if network isolation is desired.
 
 ## Validation
 

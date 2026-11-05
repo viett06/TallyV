@@ -1,5 +1,5 @@
 # Local API (e.g. PyCharm/uvicorn) with a Docker worker.
-# Keep application code and stored attachments shared with the host API.
+# Share source and legacy/demo data; new attachments use the shared MinIO bucket.
 # docker compose -f compose.yaml -f compose.outlook.yaml -f compose.local.yaml up -d --no-deps hr-mock worker
 services:
   hr-mock:

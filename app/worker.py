@@ -5,6 +5,7 @@ import signal
 import time
 from datetime import timedelta
 
+from app.assistant import jobs as assistant_jobs
 from app.core.errors import AppError, MailboxReauthenticationRequired
 from app.core.i18n import message
 from app.core.time import utcnow
@@ -24,17 +25,28 @@ logger = logging.getLogger("tallyv.worker")
 running = True
 
 
-def run_one():
-    with SessionLocal() as db:
+def run_one(sessions=None):
+    sessions = sessions or SessionLocal
+    with sessions() as db:
         job = job_crud.claim_next(db)
         if job is None:
             return False
         job_id = job.id
+        if job.kind == "ASSISTANT_GENERATE":
+            assistant_jobs.start(db, job)
         db.commit()
     try:
-        with SessionLocal() as db:
+        with sessions() as db:
             job = job_crud.get_job(db, job_id)
-            if job.kind == "SYNC":
+            if job.kind == "ASSISTANT_GENERATE":
+                complete = assistant_jobs.execute(db, job)
+                job = job_crud.get_job(db, job_id)
+                if not complete:
+                    job.status, job.attempts, job.locked_at, job.error = "PENDING", 0, None, None
+                    job.available_at = utcnow()
+                    db.commit()
+                    return True
+            elif job.kind == "SYNC":
                 payload = dict(job.payload)
                 if payload.get("mode") == "rescan":
                     result = mailbox.synchronize_mailbox(
@@ -73,7 +85,7 @@ def run_one():
     except Exception as error:
         # Log IDs and exception classes only; no email or evidence content.
         logger.warning("job_id=%s error_type=%s", job_id, type(error).__name__)
-        with SessionLocal() as db:
+        with sessions() as db:
             job = job_crud.get_job(db, job_id)
             job.status = "FAILED" if job.attempts >= job.max_attempts else "PENDING"
             job.error = (
@@ -88,7 +100,9 @@ def run_one():
                 job.status = "FAILED"
             job.available_at = utcnow() + timedelta(seconds=getattr(error, "retry_after", 2**job.attempts))
             job.locked_at = None
-            if job.kind == "IMPORT_EMAIL":
+            if job.kind == "ASSISTANT_GENERATE":
+                assistant_jobs.failed(db, job)
+            elif job.kind == "IMPORT_EMAIL":
                 email = get_email(db, job.payload["email_id"])
                 if email:
                     email.status, email.error = "FAILED", job.error

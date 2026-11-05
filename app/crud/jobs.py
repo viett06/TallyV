@@ -32,7 +32,14 @@ def get_by_key(db: Session, key: str) -> ProcessingJob | None:
 
 
 def list_jobs(db: Session) -> list[ProcessingJob]:
-    return list(db.scalars(select(ProcessingJob).order_by(ProcessingJob.id.desc()).limit(100)))
+    return list(
+        db.scalars(
+            select(ProcessingJob)
+            .where(ProcessingJob.kind != "ASSISTANT_GENERATE")
+            .order_by(ProcessingJob.id.desc())
+            .limit(100)
+        )
+    )
 
 
 def claim_next(db: Session) -> ProcessingJob | None:

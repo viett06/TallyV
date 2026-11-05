@@ -2,22 +2,32 @@
 
 import argparse
 import shutil
+from urllib.parse import urlparse
 
 import httpx
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.demo.catalog import seed
+from app.models import Attachment, EvidenceFile
+from app.services.storage import delete_file
 
 
 def reset(confirmed):
     if confirmed != "RESET-SYNTHETIC-DEMO":
         raise SystemExit("Reset refused: use --confirm RESET-SYNTHETIC-DEMO. Stop the worker first.")
+    if settings.storage_backend == "s3" and urlparse(settings.s3_endpoint_url).hostname not in {
+        "localhost",
+        "127.0.0.1",
+        "minio",
+    }:
+        raise SystemExit("Demo reset is restricted to local storage or local MinIO; AWS buckets are not reset.")
     with SessionLocal() as db:
         # A running worker holds this advisory lock: never reset underneath processing.
         if not db.scalar(text("SELECT pg_try_advisory_xact_lock(744019)")):
             raise SystemExit("Stop the worker before resetting demo data.")
+        names = set(db.scalars(select(Attachment.path))) | set(db.scalars(select(EvidenceFile.path)))
         db.execute(
             text(
                 "TRUNCATE hr_submissions, mock_hr_receipts, mock_hr_attendance, analysis_results, evidence_files, audit_logs, case_versions, attendance_cases, import_batches, attachments, emails, processing_jobs RESTART IDENTITY CASCADE"
@@ -25,6 +35,8 @@ def reset(confirmed):
         )
         db.commit()
         seed(db)
+    for name in names:
+        delete_file(name)
     # All file paths are UUID-owned artifacts within this application's storage root.
     root = settings.storage_dir.resolve()
     for path in root.iterdir() if root.exists() else []:

@@ -1,0 +1,14 @@
+# Storage overlay for an existing, provisioned AWS S3 bucket.
+# Requires Docker Compose >= 2.24.4 for !override. Do not start minio/minio-init.
+services:
+  api:
+    environment:
+      S3_ENDPOINT_URL: ""
+    depends_on: !override
+      db: {condition: service_healthy}
+  worker:
+    networks: [internal, access]
+    environment:
+      S3_ENDPOINT_URL: ""
+    depends_on: !override
+      api: {condition: service_healthy}

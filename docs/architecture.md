@@ -52,7 +52,7 @@ Health endpoint chỉ thực hiện probe database qua CRUD; không có quy trì
 - `services/exports.py`: dựng workbook và ép giá trị nguồn thành string để chống công thức. Router `api/files.py` chịu trách nhiệm HTTP StreamingResponse.
 - `services/email_provider.py`: EmailProvider interface và Mailpit adapter nội bộ.
 - `services/auth.py`: kiểm tra tài khoản, giới hạn thử đăng nhập, giải mã session và kiểm tra role. `api/deps.py` chuyển cookie HTTP thành lời gọi nghiệp vụ.
-- `services/security.py`: password hash/verify và session signer. `services/storage.py`: lưu UUID, hash và kiểm tra đường dẫn local.
+- `services/security.py`: password hash/verify và session signer. `services/storage.py`: lưu/đọc/xóa file qua local hoặc S3 (MinIO/AWS), tên UUID và SHA-256. Các module nhập Excel, tải file và OCR chỉ nhận bytes, không phụ thuộc đường dẫn máy. Xem [kho object](object-storage.md).
 - `services/hr.py`: chuẩn bị giá trị điều chỉnh, kiểm tra kết luận/phiên bản, tạo yêu cầu bất biến, gửi từ worker và lưu audit/biên nhận. `services/hr_connector.py` chỉ phụ trách HTTP đến HR mô phỏng.
 - `hr_mock_app.py` và `services/mock_hr.py`: dịch vụ đích chạy riêng, sở hữu bảng công/biên nhận mô phỏng, khóa revision và khóa chống gửi trùng. Bản demo dùng chung PostgreSQL nhưng TallyV chỉ truy cập đích qua HTTP. Giao diện hiện chỉ giữ bảng công để tham khảo; màn hình gửi điều chỉnh đã bỏ theo phạm vi mới. Backend thử nghiệm gửi sửa giờ còn được giữ để tránh xóa dữ liệu, nhưng không phải mô hình tích hợp SAP đã được chấp nhận. Xem [phạm vi SAP](sap-demo.md).
 
@@ -107,3 +107,11 @@ Không cần thêm generic repository, base service hoặc domain layer trống 
 - Snapshot trước/sau refactor khớp: **60 case, 10 email**, hash ảnh, audit, kết luận HR và job nghiệp vụ không đổi.
 - Smoke chỉ đọc trên PostgreSQL thật: validate cả **60 chi tiết case**, **10 chi tiết email**, bootstrap/dashboard/jobs/auth, bộ lọc kỳ **24/36**, xuất Excel theo bộ lọc **6 dòng**. Không sửa dữ liệu nghiệp vụ để kiểm tra.
 - API healthy và worker tiếp tục chạy tại `http://127.0.0.1:8000`.
+
+## Module Assistant
+
+`app/assistant` chứa nghiệp vụ DraftV: `api`, `schema`, `services`, `crud`, `models`, `demo`, cấu hình AI và hooks cho worker. Interface HTTP đặt dưới `/api/assistant`, dùng `app.api.deps.HRUser` và `DBSession`. Frontend `frontend/src/assistant` được render trong shell TallyV; CSS giới hạn trong `.assistant-workspace`.
+
+Sáu bảng `assistant_*` dùng chung `Base`, migration `a368e7c015b2` nối sau `f257c6d940a1`. `user_id` tham chiếu users TallyV. Không tạo hệ thống tài khoản/cookie hoặc database riêng. Kho file đi qua adapter gọi `app.services.storage`; không thêm credential hay bucket thứ hai.
+
+Yêu cầu sinh hồ sơ enqueue `ASSISTANT_GENERATE` trong `processing_jobs`, key `assistant:<run_id>`. Worker TallyV gọi các hooks `start`, `execute`, `failed` trong `app.assistant.jobs`, giữ nguyên claim/lease/advisory lock và transaction hoàn tất chung. Xử lý lỗi đầu vào trong savepoint để không commit một phần hồ sơ. Retry tối đa hai lần tự động; thử lại thủ công qua endpoint hội thoại có kiểm tra chủ sở hữu. Danh sách/retry jobs nghiệp vụ chấm công không hiển thị hay điều khiển jobs Assistant.

@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 from app.api.deps import DBSession, Filters, HRUser
 from app.services import exports, files
@@ -9,16 +9,19 @@ router = APIRouter(tags=["Evidence & exports"])
 
 @router.get("/evidence/{evidence_id}")
 def evidence(evidence_id: int, db: DBSession, user: HRUser):
-    return FileResponse(
-        files.evidence_path(db, evidence_id), media_type="image/png", headers={"Cache-Control": "private, no-store"}
+    return Response(
+        files.evidence_content(db, evidence_id), media_type="image/png", headers={"Cache-Control": "private, no-store"}
     )
 
 
 @router.get("/attachments/{attachment_id}")
 def attachment(attachment_id: int, db: DBSession, user: HRUser):
-    return FileResponse(
-        files.attachment_path(db, attachment_id),
-        filename=f"attachment-{attachment_id}.xlsx",
+    return Response(
+        files.attachment_content(db, attachment_id),
+        headers={
+            "Content-Disposition": f'attachment; filename="attachment-{attachment_id}.xlsx"',
+            "Cache-Control": "private, no-store",
+        },
         media_type="application/octet-stream",
     )
 

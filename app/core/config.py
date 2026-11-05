@@ -17,6 +17,14 @@ class Settings(BaseSettings):
     demo_password: str
     demo_username: str = "hr.demo"
     storage_dir: Path = ROOT / "data"
+    storage_backend: Literal["local", "s3"] = "local"
+    s3_endpoint_url: str = ""
+    s3_region: str = "us-east-1"
+    s3_bucket: str = "tallyv-files"
+    s3_prefix: str = "tallyv/"
+    s3_access_key_id: SecretStr = SecretStr("")
+    s3_secret_access_key: SecretStr = SecretStr("")
+    s3_addressing_style: Literal["auto", "path", "virtual"] = "auto"
     mailpit_url: str = "http://127.0.0.1:8025"
     smtp_host: str = "127.0.0.1"
     smtp_port: int = 1025
@@ -43,6 +51,30 @@ class Settings(BaseSettings):
     outlook_test_mode: bool = True
     hr_mock_url: str = "http://127.0.0.1:8010"
     hr_mock_api_key: SecretStr = SecretStr("")
+
+    @model_validator(mode="after")
+    def valid_storage(self):
+        if bool(self.s3_access_key_id.get_secret_value()) != bool(self.s3_secret_access_key.get_secret_value()):
+            raise ValueError("Set both S3 credentials, or leave both blank to use the AWS credential chain")
+        if not self.s3_bucket or any(c not in "abcdefghijklmnopqrstuvwxyz0123456789.-" for c in self.s3_bucket):
+            raise ValueError("Invalid S3 bucket name")
+        if not self.s3_prefix.endswith("/") or any(c in self.s3_prefix for c in ('"', "*", "\\", "\n")):
+            raise ValueError("S3_PREFIX must end with / and contain no wildcard or escape characters")
+        if self.s3_endpoint_url:
+            parsed = urlparse(self.s3_endpoint_url)
+            if (
+                parsed.scheme not in {"http", "https"}
+                or not parsed.hostname
+                or parsed.username
+                or parsed.password
+                or parsed.query
+                or parsed.fragment
+                or parsed.path not in {"", "/"}
+            ):
+                raise ValueError("Use an HTTP(S) S3 endpoint without credentials or a path")
+            if parsed.scheme == "http" and parsed.hostname not in {"localhost", "127.0.0.1", "minio"}:
+                raise ValueError("S3 endpoints outside local MinIO must use HTTPS")
+        return self
 
     @model_validator(mode="after")
     def synthetic_composio_only(self):

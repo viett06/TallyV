@@ -2,6 +2,16 @@
 
 Ứng dụng nghiệp vụ HR bằng tiếng Việt, hỗ trợ hộp thư Outlook thử nghiệm của người phát triển và chế độ Mailpit dành riêng cho dữ liệu mô phỏng. Quy trình hiện tại: tiếp nhận email/Excel → đánh giá và phân loại khi HR bấm nút → HR rà soát, xác nhận và xuất kết quả. Chưa kết nối SAP thật.
 
+## Assistant — xử lý dữ liệu và soạn báo cáo theo prompt
+
+Mục **Assistant** tại `/?app=assistant` nhận prompt, file dữ liệu và mẫu báo cáo tùy chọn. AI lập kế hoạch, gọi công cụ xử lý Excel, hỏi HR xác nhận phân loại, tính lại khi sửa và tạo Excel/Word có dấu vết về dòng nguồn. Chọn mẫu **Phân loại và thống kê** để thử luồng này. Chức năng soạn hồ sơ DraftV trước đó vẫn có trong mẫu soạn tài liệu.
+
+Sau khi cập nhật mã, cài `requirements.txt`, chạy `alembic upgrade head`, build lại frontend và restart API/worker. Docker dùng lệnh build/chạy theo chế độ Outlook hoặc demo đang chọn. Migration thêm tám bảng `assistant_*` cùng các cột task/revision; dùng chung users, hàng đợi `processing_jobs` và kho file riêng tư đã cấu hình của TallyV. Không chạy worker DraftV riêng cho module này.
+
+Assistant mặc định dùng AI local tại `http://127.0.0.1:11435`, model `llama3.2:latest`; cấu hình độc lập bằng `ASSISTANT_PROCESSING_MODE`, `ASSISTANT_OLLAMA_URL`, `ASSISTANT_OLLAMA_MODEL`, `ASSISTANT_MODEL_TIMEOUT`. Cần khởi động Ollama có model tương ứng trước khi gửi yêu cầu. Với kho trọng số DraftV hiện có, có thể tiếp tục chạy `venv/bin/python -m scripts.serve_model` từ thư mục DraftV; không sao chép trọng số hay tự tải model khi khởi động TallyV. Docker dùng `ASSISTANT_DOCKER_OLLAMA_URL` để trỏ tới endpoint mà worker truy cập được. Chế độ kiểm tra không AI là `ASSISTANT_PROCESSING_MODE=RULE_BASED`; giao diện hiển thị rõ và không tự chuyển chế độ khi AI lỗi.
+
+Chi tiết: [module Assistant](docs/assistant.md). Dữ liệu hội thoại của ứng dụng DraftV độc lập không được tự chuyển sang database TallyV.
+
 ## Phạm vi tích hợp SAP
 
 Hiện tại TallyV chỉ **tổng hợp, đánh giá và phân loại** để HR dùng kết quả và nhập nghiệp vụ lên SAP. Mục tiêu sau này là tích hợp **TallyV thành module/ứng dụng mở rộng trong SAP**, rồi **tự động hóa phần nhập SAP sau khi HR kiểm tra và xác nhận**. Mỗi kiểu case sai công số có thể cần cách nhập, trường dữ liệu và thao tác SAP khác nhau; cần mô tả và ánh xạ đúng từng trường hợp. Không quy bài toán này thành sửa giờ vào/ra bằng một API chung. Việc dựng một cổng giả lập hay gửi sửa giờ sang dịch vụ HR riêng không được coi là đã đạt mục tiêu tích hợp.
@@ -14,7 +24,7 @@ The synthetic MVP can read real test Outlook emails through **Composio-managed O
 
 The Microsoft-direct connector remains available with `OUTLOOK_TRANSPORT=microsoft`; see [docs/outlook.md](docs/outlook.md). Hospital deployment requires separate approval and a separate production environment. Neither this MVP nor choosing Microsoft-direct establishes hospital compliance.
 
-Các bước demo bên dưới dùng `MAIL_PROVIDER=mailpit`; dữ liệu Mailpit được giữ riêng khỏi dữ liệu Outlook khi hiển thị và xuất báo cáo.
+Stack mặc định dùng Outlook/Composio, không chứa Mailpit. Các bước demo bên dưới dùng override `compose.demo.yaml` để bật Mailpit và đặt `MAIL_PROVIDER=mailpit` cho API/worker; dữ liệu demo được giữ riêng khỏi dữ liệu Outlook khi hiển thị và xuất báo cáo.
 
 ## Chạy demo từ đầu
 
@@ -22,9 +32,8 @@ Cần Docker Desktop/Compose, Python 3.11+ để tạo cấu hình. Lần build 
 
 ```bash
 python3 scripts/init_env.py
-# Set MAIL_PROVIDER=mailpit in .env for this demo.
 # Read DEMO_USERNAME / DEMO_PASSWORD locally.
-docker compose up --build -d
+docker compose -f compose.yaml -f compose.demo.yaml up --build -d
 ```
 
 Mở **http://127.0.0.1:8000**, đăng nhập `hr.demo` bằng `DEMO_PASSWORD` trong `.env`. Nhấn **Tạo dữ liệu demo**. Worker tạo ảnh/Excel local, gửi **10 email qua SMTP Mailpit**, đọc lại qua API và nhập khoảng **60 trường hợp**, 5 khoa/phòng, 40 nhân viên, kỳ lương và đợt đang chọn (26 tháng trước–25 tháng hiện tại). Không seed trực tiếp trường hợp vào database. Sau khi tiếp nhận xong, nhấn **Đánh giá và phân loại**; chờ khoảng 20–60 giây cho OCR, xem tab Tiến trình xử lý.
@@ -32,7 +41,7 @@ Mở **http://127.0.0.1:8000**, đăng nhập `hr.demo` bằng `DEMO_PASSWORD` t
 - Mailpit local: http://127.0.0.1:8025; SMTP `127.0.0.1:1025`.
 - PostgreSQL demo: localhost `54329`, user/database `tallyv`; mật khẩu được tạo trong `.env`.
 - Toàn bộ cổng chỉ bind loopback. Không công khai lên Internet.
-- `docker compose down` rồi `docker compose up -d` giữ nguyên database, file, hộp thư và trạng thái nhờ named volumes.
+- Dừng/chạy lại bằng cùng cặp `-f compose.yaml -f compose.demo.yaml` giữ nguyên database, file, hộp thư và trạng thái nhờ named volumes.
 - Gửi lại dữ liệu mẫu: nút **Gửi bộ email mẫu** hoặc `docker compose exec api python -m scripts.send_demo`. Message-ID cố định giúp tiếp nhận lặp không tạo trường hợp trùng.
 
 `init_env.py` không ghi mật khẩu vào log và không ghi đè `.env` đã tồn tại. `.env.example` chỉ là mẫu, không chứa secret thực tế.
@@ -47,6 +56,8 @@ Mở **http://127.0.0.1:8000**, đăng nhập `hr.demo` bằng `DEMO_PASSWORD` t
 6. **4:15–5:00** Xem lịch sử ai sửa gì/khi nào/lý do. Lọc kỳ, trạng thái rồi Xuất Excel. Xác nhận trong TallyV là kết quả rà soát; cập nhật công số sẽ thực hiện trong SAP khi có môi trường tích hợp.
 
 ## Cấu trúc
+
+Excel đính kèm và ảnh bằng chứng được lưu trong **MinIO qua S3**, PostgreSQL giữ metadata và checksum. Bộ cài mới tạo cấu hình MinIO khi chạy `scripts/init_env.py`; bản cài cũ cần sao chép và kiểm tra file trước khi bật `STORAGE_BACKEND=s3`. Xem [hướng dẫn kho file, chuyển dữ liệu và vai trò container](docs/object-storage.md). Object browser local: **http://127.0.0.1:9001**, đăng nhập bằng tài khoản MinIO trong `.env`.
 
 Backend được tổ chức theo các folder trong `app/`, tham khảo cách tách router, schema, services, model registry và DB session của Docentra. Giữ `models/` và `crud/` theo cấu trúc của TallyV.
 
@@ -168,7 +179,7 @@ Reset giữ tài khoản HR/danh mục, xóa trường hợp, file, job và emai
 ## Phát triển local
 
 ```bash
-docker compose up -d db mailpit
+docker compose up -d db minio minio-init
 source venv/bin/activate
 alembic upgrade head
 python -m scripts.seed_catalog
@@ -182,7 +193,9 @@ uvicorn hr_mock_app:app --host 127.0.0.1 --port 8010 --no-access-log
 
 Local Python cần Tesseract riêng nếu bật OCR; không có thì UI báo cần HR xem ảnh. Khi dùng Vite proxy, mở http://127.0.0.1:5173. Sau `npm run build`, FastAPI phục vụ bundle ngay tại port 8000 (khởi động lại nếu trước đó chưa có thư mục dist).
 
-Nếu chạy API bằng PyCharm/uvicorn trên máy nhưng dùng worker Docker cho Outlook, dùng override để worker đọc cùng mã nguồn và lưu file vào `./data`, cùng thư mục với API local:
+Nếu cần demo SMTP với API/worker native, đặt `MAIL_PROVIDER=mailpit` trong `.env` và chạy `docker compose -f compose.yaml -f compose.demo.yaml up -d mailpit`. Khi dùng Outlook/Composio, không cần container Mailpit.
+
+Nếu chạy API bằng PyCharm/uvicorn trên máy nhưng dùng worker Docker cho Outlook, dùng override để worker đọc cùng mã nguồn. API native gọi MinIO ở `127.0.0.1:9000`, worker gọi `minio:9000`; mount `./data` giữ dữ liệu cũ và file demo. Cài lại `requirements.txt` cho môi trường Python native sau khi cập nhật code:
 
 ```bash
 docker compose -f compose.yaml -f compose.outlook.yaml -f compose.local.yaml up -d --no-deps hr-mock worker

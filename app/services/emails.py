@@ -53,13 +53,11 @@ def retry_email(db: Session, email_id: int) -> dict:
     if email and email.status == "NEEDS_REVIEW" and email.source_id.startswith("outlook:"):
         from app.crud.outlook import get_connection
         from app.services.imports import email_scope, file_scope
-        from app.services.storage import stored_path
+        from app.services.storage import read_bytes
 
         connection = get_connection(db)
         if connection and connection.status == "CONNECTED":
-            files = (
-                (file.name, stored_path(file.path).read_bytes()) for file in email_crud.list_attachments(db, email.id)
-            )
+            files = ((file.name, read_bytes(file.path)) for file in email_crud.list_attachments(db, email.id))
             period, department_name = file_scope(files)
             scope = email_scope(
                 db, email.sender, email.subject, connection.mailbox, connection.mailbox, period, department_name

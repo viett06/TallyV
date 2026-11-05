@@ -1,0 +1,6 @@
+import {Download,FileText,Folder,ArrowUpRight} from 'lucide-react'
+import {t} from '../../i18n'
+import type {Artifact,Run} from '../types'
+
+type Props={run:Run;onOpen:(artifact:Artifact)=>void}
+export function ResultCard({run,onOpen}:Props){return <div className="result-card"><div className="result-heading"><h3><Folder/>{t('assistant.results')}</h3><span className="badge">{t('assistant.draft_count',{count:run.artifacts.length})}</span></div>{run.artifacts.map(artifact=><div className="result-file" key={artifact.id}><span className="file-icon"><FileText/></span><div><strong>{artifact.label}</strong><span className="caption">v{run.kind==='DATA_TASK'?run.revision:artifact.revision} · {t(artifact.reviewed?'assistant.reviewed':'assistant.needs_review')}{Object.keys(artifact.email).length?' · '+t('assistant.email_draft'):''} · {artifact.name}</span></div><button onClick={()=>onOpen(artifact)}>{t('assistant.open')}<ArrowUpRight/></button></div>)}<div className="result-footer"><span className="caption">{run.artifacts.filter(artifact=>artifact.reviewed).length}/{run.artifacts.length} · {t('assistant.reviewed')}</span><a className="button" href={'/api/assistant/runs/'+run.id+'/download'}><Download/>{t('assistant.download_bundle')}</a></div></div>}

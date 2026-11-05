@@ -3,6 +3,11 @@
 import secrets
 from pathlib import Path
 
+if __package__:
+    from scripts.configure_storage import configure
+else:
+    from configure_storage import configure
+
 root = Path(__file__).resolve().parent.parent
 path = root / ".env"
 if path.exists():
@@ -17,4 +22,5 @@ path.write_text(
     encoding="utf-8",
 )
 path.chmod(0o600)
+configure(path, activate=True)
 print("Created .env with generated demo credentials. Read locally to sign in.")

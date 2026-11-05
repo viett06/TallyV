@@ -27,7 +27,7 @@ from app.services.catalog import ensure_period
 from app.services.email_provider import EmailProvider
 from app.services.excel import MAX_BYTES, parse_workbook
 from app.services.review_calendar import parse_cycle, payroll_period
-from app.services.storage import store_bytes, stored_path
+from app.services.storage import read_bytes, store_bytes
 
 
 def ingest_attachment(db: Session, attachment: Attachment) -> None:
@@ -52,7 +52,7 @@ def ingest_attachment(db: Session, attachment: Attachment) -> None:
         attachment.error = duplicate.error
         return
     try:
-        parsed, errors, count, global_errors = parse_workbook(stored_path(attachment.path).read_bytes())
+        parsed, errors, count, global_errors = parse_workbook(read_bytes(attachment.path))
         batch.row_count = count
         batch.errors = errors + [{"row": None, "codes": [e]} for e in global_errors]
         batch.error_count = len(errors)

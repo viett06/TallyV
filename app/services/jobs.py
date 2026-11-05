@@ -89,6 +89,8 @@ def list_jobs(db: Session) -> list[dict]:
 
 def retry_job(db: Session, job_id: int, user: User) -> dict:
     job = job_crud.get_job(db, job_id)
+    if job and job.kind == "ASSISTANT_GENERATE":
+        raise AppError(404, "Không tìm thấy công việc trong danh sách này.")
     if not job or job.status != "FAILED":
         raise AppError(409, message("jobs.retry_requires_failure"))
     if job.kind == "HR_SUBMIT":
