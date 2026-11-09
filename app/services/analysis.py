@@ -12,11 +12,11 @@ from app.core.config import settings
 from app.core.i18n import message
 from app.crud import cases as analysis_crud
 from app.crud import catalog as catalog_crud
-from app.models import AnalysisResult, EvidenceFile
+from app.models import AnalysisResult, AttendanceCase, EvidenceFile
 from app.schema.analysis import Suggestion
 from app.services import evidence_vision, gemini, jev
-from app.services.evidence_cloud import CloudImageNotApproved, CloudProviderNotConfigured
-from app.services.ocr import read_text
+from app.services.evidence_cloud import CloudProviderNotConfigured
+from app.services.ocr import VLMRUN_OCR_MODEL, read_text
 from app.services.storage import read_bytes
 
 
@@ -94,15 +94,15 @@ def read_evidence(evidence: EvidenceFile, data: dict[str, str]) -> None:
         evidence.checks = [message("evidence.ocr_unavailable")]
         return
     read_evidence_text(evidence, data, content)
+    provider = settings.evidence_vision_provider
     if settings.evidence_vision_enabled and (
-        settings.evidence_vision_provider == "qwen_cloud"
-        or evidence.extracted.get("kind") not in {"DEVICE", "ATTENDANCE", "LEAVE"}
+        provider != "ollama" or evidence.extracted.get("kind") not in {"DEVICE", "ATTENDANCE", "LEAVE"}
     ):
-        model = (
-            settings.evidence_vision_cloud_model
-            if settings.evidence_vision_provider == "qwen_cloud"
-            else settings.evidence_vision_model
-        )
+        model = {
+            "ollama": settings.evidence_vision_model,
+            "qwen_cloud": settings.evidence_vision_cloud_model,
+            "openrouter": evidence_vision.OPENROUTER_VISION_MODEL,
+        }[provider]
         evidence.extracted = {**evidence.extracted, "vision_model": model}
         try:
             scene = evidence_vision.observe(content)
@@ -111,8 +111,6 @@ def read_evidence(evidence: EvidenceFile, data: dict[str, str]) -> None:
                 "kind"
             ) != "CAMERA":
                 evidence.checks = [*evidence.checks, message("evidence.scene_source_unknown")]
-        except CloudImageNotApproved:
-            evidence.extracted = {**evidence.extracted, "vision_status": "TEST_IMAGE_REQUIRED"}
         except CloudProviderNotConfigured:
             evidence.extracted = {**evidence.extracted, "vision_status": "NOT_CONFIGURED"}
         except Exception:
@@ -140,6 +138,8 @@ def read_evidence_text(evidence: EvidenceFile, data: dict[str, str], content: by
         extracted = {}
         if settings.ocr_backend == "remote":
             extracted["ocr_model"] = settings.ocr_remote_model
+        elif settings.ocr_backend == "vlmrun":
+            extracted["ocr_model"] = VLMRUN_OCR_MODEL
         if len(ids) == 1:
             extracted["employee_id"] = next(iter(ids))
             if any("O" in value for value in employee):
@@ -180,14 +180,9 @@ def read_evidence_text(evidence: EvidenceFile, data: dict[str, str], content: by
         evidence.checks = checks or ([message("evidence.fields_match")] if local_matching else [])
         if extracted.get("normalization"):
             evidence.checks = [*evidence.checks, extracted["normalization"]]
-    except (CloudImageNotApproved, CloudProviderNotConfigured) as error:
+    except CloudProviderNotConfigured:
         evidence.ocr_status = "UNAVAILABLE"
-        key = (
-            "evidence.ocr_test_image_required"
-            if isinstance(error, CloudImageNotApproved)
-            else "evidence.ocr_not_configured"
-        )
-        evidence.checks = [message(key)]
+        evidence.checks = [message("evidence.ocr_not_configured")]
     except Exception:
         evidence.ocr_status = "UNAVAILABLE"
         evidence.checks = [message("evidence.ocr_unavailable")]
@@ -215,6 +210,8 @@ def apply_gemini_matches(evidence: list[EvidenceFile], matches: list[gemini.Evid
 
 def analyze(db: Session, version_id: int) -> None:
     version = analysis_crud.get_version(db, version_id)
+    if not version or db.get(AttendanceCase, version.case_id).deleted_at:
+        return
     result = analysis_crud.get_analysis(db, version_id)
     evidence = analysis_crud.list_evidence(db, version_id)
     if result is None:
@@ -224,7 +221,7 @@ def analyze(db: Session, version_id: int) -> None:
     for item in evidence:
         read_evidence(item, version.normalized)
     result.method = settings.processing_mode
-    result.model = {"LOCAL_LLM": settings.ollama_model, "GEMINI": settings.gemini_model}.get(result.method)
+    result.model = {"LOCAL_LLM": settings.ollama_model, "GEMINI": gemini.model_id()}.get(result.method)
     policies = {}
     metadata = {}
     try:

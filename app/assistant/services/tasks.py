@@ -48,7 +48,7 @@ def read_source(item):
     return {key: getattr(item, key) for key in ("id", "name", "role", "storage_key", "sha256")}
 
 
-def model_caller(db, run_id):
+def model_caller(db, run_id, *, hybrid=False):
     def call(schema, instruction, data, output_schema=None):
         # Persist consumption BEFORE the call. A timeout must not reset the budget.
         run = crud.run(db, run_id)
@@ -62,15 +62,21 @@ def model_caller(db, run_id):
         state["model_calls"] = calls + 1
         run.state = state
         db.commit()
+        if hybrid:
+            return planner.schema_call(
+                schema, instruction, data, output_schema, bounded=True, model=settings.hybrid_ollama_model
+            )
         return planner.schema_call(schema, instruction, data, output_schema, bounded=True)
 
     return call
 
 
-def complete_step(db, run, step, output, elapsed):
+def complete_step(db, run, step, output, elapsed, *, finding=None):
     if run.status == "CANCELLED":
         return
-    step.status, step.error, step.output = "COMPLETED", "", output
+    step.status = "FAILED" if finding else "COMPLETED"
+    step.error = finding or ""
+    step.output = output
     step.elapsed_ms = int(elapsed * 1000)
     step.updated_at = utcnow()
     state = dict(run.state)
@@ -103,7 +109,7 @@ def pause(db, run, text, issues=None):
     )
 
 
-def advance(db, job):
+def advance(db, job, *, hybrid=False):
     """Execute at most one durable phase; release the queue between successful phases."""
     run = crud.run(db, job.payload["run_id"])
     if run.status in {"CANCELLED", "COMPLETED", "NEEDS_INPUT"}:
@@ -182,12 +188,16 @@ def advance(db, job):
                 if source["role"] == "template":
                     template = task_documents.inspect_template(source, content)
                     continue
-                for _, data in datasets.source_datasets(source, content).items():
+                for _, data in datasets.source_datasets(source, content, describe_types=hybrid).items():
                     total += len(data["rows"])
                     if total > settings.max_data_rows:
                         raise InputError(message("assistant.data.row_limit", limit=settings.max_data_rows))
                     alias = f"source_{len(catalog) + 1}"
-                    entry = datasets.profile(alias, data)
+                    entry = (
+                        {"id": alias, "columns": data["columns"], "types": data["observed_types"],
+                         "row_count": len(data["rows"])}
+                        if hybrid else datasets.profile(alias, data)
+                    )
                     entry["name"] = source["name"]
                     entry["sheet"] = data["rows"][0]["lineage"][0].get("sheet", "")
                     catalog.append(entry)
@@ -208,13 +218,23 @@ def advance(db, job):
                     allow_unbound=True,
                 )
             else:
+                catalog = state["catalog"]
+                if hybrid:
+                    catalog = [
+                        {key: entry[key] for key in ("id", "name", "sheet", "columns", "description")}
+                        for entry in catalog
+                    ]
                 plan = task_planner.create_plan(
                     run.request,
-                    state["catalog"],
+                    catalog,
                     run.source_snapshot.get("template") or {},
                     state.get("rules", []),
-                    model_caller(db, run.id),
+                    model_caller(db, run.id, hybrid=hybrid),
                 )
+            if hybrid and not plan.question and not plan.steps:
+                raise InputError("Hãy mô tả phép xử lý cần thực hiện trên Excel và kết quả bạn muốn nhận.")
+            if hybrid and any(step.tool == "write_narrative" for step in plan.steps):
+                raise InputError("Luồng Excel này kiểm chứng được bảng và chỉ tiêu. Hãy yêu cầu đầu ra dạng số hoặc bảng.")
             db.refresh(run)
             if run.status == "CANCELLED":
                 return True
@@ -231,10 +251,18 @@ def advance(db, job):
                 inputs,
                 run.request,
                 state.get("rules", []),
-                model_caller(db, run.id),
+                model_caller(db, run.id, hybrid=hybrid),
                 lambda: task_planner.validate_plan(
                     plan, [c["id"] for c in state["catalog"]], run.request, allow_unbound=True
                 ),
+                source_metadata=[
+                    {
+                        column: desc["meaning"]
+                        for entry in state["catalog"] if entry["id"] == reference
+                        for column, desc in zip(entry["columns"], entry["column_descriptions"], strict=True)
+                    }
+                    for reference in operation.inputs
+                ] if hybrid else None,
             )
             db.refresh(run)
             if run.status == "CANCELLED":
@@ -245,7 +273,8 @@ def advance(db, job):
             plan = DataPlan.model_validate(run.plan)
             snapshots = {key: datasets.load_snapshot(ref) for key, ref in state["datasets"].items()}
             report = task_planner.prepare_report(
-                plan, run.source_snapshot["template"], snapshots, run.request, model_caller(db, run.id)
+                plan, run.source_snapshot["template"], snapshots, run.request,
+                model_caller(db, run.id, hybrid=hybrid)
             )
             db.refresh(run)
             if run.status == "CANCELLED":
@@ -266,9 +295,11 @@ def advance(db, job):
                 return True
             run.state = {**run.state, "validation": output, "issues": []}
         elif phase == "$render":
+            if hybrid and not state.get("hybrid_verified"):
+                raise AppError(409, "Kết quả script chưa qua đối chiếu độc lập.")
             plan = DataPlan.model_validate(run.plan)
             rendered = render_outputs(run, plan, sources)
-            db.refresh(run)
+            db.refresh(run, with_for_update=hybrid)
             if run.status == "CANCELLED":
                 return True
             # Remove only artifacts belonging to this unfinished render attempt.
@@ -296,8 +327,8 @@ def advance(db, job):
                 "request": run.request,
                 "rules": state.get("rules", []),
                 "decisions": state.get("decisions", {}),
-                "use_model": settings.processing_mode == "LOCAL_LLM",
-                "model_call": model_caller(db, run.id),
+                "use_model": run.method in {"LOCAL_LLM", "HYBRID"},
+                "model_call": model_caller(db, run.id, hybrid=hybrid),
             }
             cache_ref = step.output.get("snapshot") or state.get("classification_cache", {}).get(phase)
             if cache_ref and operation.tool == "classify_values":
@@ -305,7 +336,12 @@ def advance(db, job):
                 context["assignments"] = {
                     a["key"]: a for a in cached.get("assignments", []) if a.get("method") == "model"
                 }
-            data = orchestration.execute_tool(operation, inputs, context)
+            if hybrid:
+                from app.assistant.services import tools
+
+                data = tools.execute(operation, inputs, context)
+            else:
+                data = orchestration.execute_tool(operation, inputs, context)
             output = {"snapshot": datasets.save_snapshot(data), "rows": len(data["rows"]), "columns": data["columns"]}
             db.refresh(run)
             if run.status == "CANCELLED":
@@ -417,6 +453,8 @@ def render_outputs(run, plan, sources):
 
 def dataset_view(db, conversation_id, run_id, user, reference=None, offset=0, limit=50):
     run = require_run(db, conversation_id, run_id, user, lock=False)
+    if run.method == "HYBRID" and (run.status != "COMPLETED" or not run.state.get("hybrid_verified")):
+        raise AppError(404, message("assistant.data.dataset_not_found"))
     refs = run.state.get("datasets", {})
     reference = reference or run.plan.get("summary") or run.plan.get("result")
     if reference not in refs:

@@ -28,32 +28,36 @@ class Settings(BaseSettings):
     mailpit_url: str = "http://127.0.0.1:8025"
     smtp_host: str = "127.0.0.1"
     smtp_port: int = 1025
-    processing_mode: str = "RULE_BASED"
+    processing_mode: str = "GEMINI"
     ollama_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "qwen2.5:7b"
+    gemini_provider: Literal["google", "openrouter"] = "google"
     gemini_api_key: SecretStr = SecretStr("")
     gemini_model: str = Field(default="gemini-3.8-flash", pattern=r"^gemini-[a-z0-9.-]{1,80}$")
     jev_enabled: bool = False
+    jev_provider: Literal["typesafe", "openrouter"] = "typesafe"
     jev_api_key: SecretStr = SecretStr("")
     jev_model: str = Field(default="jev-1.14.0", pattern=r"^jev-[a-z0-9.-]{1,80}$")
     jev_threshold: float = Field(default=0.85, gt=0.5, lt=1, allow_inf_nan=False)
     ocr_enabled: bool = False
-    ocr_backend: Literal["tesseract", "http", "remote"] = "tesseract"
+    ocr_backend: Literal["tesseract", "http", "remote", "vlmrun"] = "tesseract"
     ocr_api_url: str = "http://127.0.0.1:8001"
     ocr_api_timeout: float = Field(default=30, gt=0, le=120, allow_inf_nan=False)
     ocr_remote_url: str = ""
     ocr_remote_api_token: SecretStr = SecretStr("")
     ocr_remote_model: Literal["PP-OCRv6_small", "PP-OCRv6_medium"] = "PP-OCRv6_medium"
+    vlmrun_api_key: SecretStr = SecretStr("")
+    vlmrun_ocr_lang: str = Field(default="vi", pattern=r"^[a-z_]{2,20}$")
     evidence_vision_enabled: bool = False
-    evidence_vision_provider: Literal["ollama", "qwen_cloud"] = "ollama"
+    evidence_vision_provider: Literal["ollama", "qwen_cloud", "openrouter"] = "ollama"
     evidence_vision_url: str = "http://127.0.0.1:11434"
     evidence_vision_model: Literal[
         "qwen3-vl:2b", "qwen3-vl:4b", "qwen3-vl:2b-instruct", "qwen3-vl:4b-instruct", "qwen3-vl:8b-instruct"
     ] = "qwen3-vl:2b-instruct"
     evidence_vision_cloud_model: Literal["qwen3-vl-8b-instruct", "qwen3-vl-235b-a22b-instruct"] = "qwen3-vl-8b-instruct"
-    evidence_vision_cloud_test_sha256: str = ""
     dashscope_api_key: SecretStr = SecretStr("")
     dashscope_workspace_id: str = Field(default="", pattern=r"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)?$")
+    openrouter_api_key: SecretStr = SecretStr("")
     sync_interval: int = 30
     allowed_origins: str = "http://127.0.0.1:8000,http://localhost:8000,http://127.0.0.1:5173,http://localhost:5173"
     cookie_secure: bool = False
@@ -175,10 +179,18 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def gemini_credentials(self):
-        if self.processing_mode == "GEMINI" and not self.gemini_api_key.get_secret_value().strip():
-            raise ValueError("GEMINI_API_KEY is required when PROCESSING_MODE=GEMINI")
-        if self.jev_enabled and (self.processing_mode != "GEMINI" or not self.jev_api_key.get_secret_value().strip()):
-            raise ValueError("JEV_ENABLED requires PROCESSING_MODE=GEMINI and JEV_API_KEY")
+        if self.processing_mode == "GEMINI":
+            key = self.openrouter_api_key if self.gemini_provider == "openrouter" else self.gemini_api_key
+            if not key.get_secret_value().strip():
+                name = "OPENROUTER_API_KEY" if self.gemini_provider == "openrouter" else "GEMINI_API_KEY"
+                raise ValueError(f"{name} is required when PROCESSING_MODE=GEMINI")
+        if self.jev_enabled:
+            if self.processing_mode != "GEMINI":
+                raise ValueError("JEV_ENABLED requires PROCESSING_MODE=GEMINI")
+            key = self.openrouter_api_key if self.jev_provider == "openrouter" else self.jev_api_key
+            if not key.get_secret_value().strip():
+                name = "OPENROUTER_API_KEY" if self.jev_provider == "openrouter" else "JEV_API_KEY"
+                raise ValueError(f"{name} is required when JEV_ENABLED=true")
         return self
 
     @field_validator("ocr_remote_url")

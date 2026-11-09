@@ -6,6 +6,7 @@ from openpyxl.styles import Font, PatternFill
 from sqlalchemy.orm import Session
 
 from app.core.attendance import EXPORT_HEADERS, EXPORT_SHEET_NAME
+from app.core.i18n import message
 from app.crud import cases as case_crud
 from app.schema.cases import CaseFilters
 
@@ -36,10 +37,10 @@ def create_workbook(db: Session, selection: CaseFilters) -> BytesIO:
             case.confirmed_by or "",
             case.confirmed_at.isoformat() if case.confirmed_at else "",
             case.period_id,
-            email.message_id or email.source_id,
-            str(version.attachment_id),
+            (email.message_id or email.source_id) if email else message("cases.manual_source"),
+            str(version.attachment_id) if email else "",
             version.sheet,
-            str(version.row_number),
+            str(version.row_number) if email else "",
             case.cycle_start.isoformat() if case.cycle_start else "",
             (case.cycle_start + timedelta(days=2)).isoformat() if case.cycle_start else "",
         ]

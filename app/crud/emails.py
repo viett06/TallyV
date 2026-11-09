@@ -1,7 +1,7 @@
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Attachment, CaseVersion, Email, EvidenceFile, ImportBatch
+from app.models import Attachment, AttendanceCase, CaseVersion, Email, EvidenceFile, ImportBatch
 from app.schema.cases import CycleFilter
 
 
@@ -37,12 +37,20 @@ def list_batches(db: Session, attachment_ids: list[int]) -> list[ImportBatch]:
 
 
 def list_versions(db: Session, attachment_ids: list[int]) -> list[CaseVersion]:
-    return list(db.scalars(select(CaseVersion).where(CaseVersion.attachment_id.in_(attachment_ids))))
+    return list(
+        db.scalars(
+            select(CaseVersion)
+            .join(AttendanceCase)
+            .where(CaseVersion.attachment_id.in_(attachment_ids), AttendanceCase.deleted_at.is_(None))
+        )
+    )
 
 
 def case_count(db: Session, attachment_ids: list[int]) -> int:
     return db.scalar(
-        select(func.count(func.distinct(CaseVersion.case_id))).where(CaseVersion.attachment_id.in_(attachment_ids))
+        select(func.count(func.distinct(CaseVersion.case_id)))
+        .join(AttendanceCase, AttendanceCase.id == CaseVersion.case_id)
+        .where(CaseVersion.attachment_id.in_(attachment_ids), AttendanceCase.deleted_at.is_(None))
     )
 
 
@@ -51,4 +59,9 @@ def get_attachment(db: Session, attachment_id: int) -> Attachment | None:
 
 
 def get_evidence(db: Session, evidence_id: int) -> EvidenceFile | None:
-    return db.get(EvidenceFile, evidence_id)
+    return db.scalar(
+        select(EvidenceFile)
+        .join(CaseVersion)
+        .join(AttendanceCase)
+        .where(EvidenceFile.id == evidence_id, AttendanceCase.deleted_at.is_(None))
+    )

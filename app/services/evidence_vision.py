@@ -1,4 +1,4 @@
-"""Describe visual evidence through Ollama or the approved-image cloud test path."""
+"""Describe visual evidence through Ollama or a configured cloud provider."""
 
 from base64 import b64encode
 from json import dumps
@@ -9,7 +9,9 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.core.config import settings
 from app.core.i18n import message
-from app.services.evidence_cloud import CloudProviderNotConfigured, require_approved_image
+from app.services.evidence_cloud import CloudProviderNotConfigured, validate_cloud_image
+
+OPENROUTER_VISION_MODEL = "qwen/qwen3-vl-8b-instruct"
 
 PROMPT = (
     "Mô tả bằng tiếng Việt những gì nhìn thấy trong ảnh. "
@@ -49,7 +51,7 @@ class Scene(BaseModel):
 
 
 def observe(content: bytes) -> Scene:
-    if settings.evidence_vision_provider == "qwen_cloud":
+    if settings.evidence_vision_provider != "ollama":
         return _observe_cloud(content)
     with httpx.Client(timeout=httpx.Timeout(45, connect=3), trust_env=False, follow_redirects=False) as client:
         response = client.post(
@@ -74,18 +76,28 @@ def observe(content: bytes) -> Scene:
 
 
 def _observe_cloud(content: bytes) -> Scene:
-    require_approved_image(content)
-    key = settings.dashscope_api_key.get_secret_value().strip()
+    validate_cloud_image(content)
+    if settings.evidence_vision_provider == "openrouter":
+        key = settings.openrouter_api_key.get_secret_value().strip()
+        url = "https://openrouter.ai/api/v1/chat/completions"
+        model = OPENROUTER_VISION_MODEL
+        routing = {"provider": {"only": ["parasail"], "allow_fallbacks": False, "require_parameters": True}}
+    else:
+        key = settings.dashscope_api_key.get_secret_value().strip()
+        workspace = settings.dashscope_workspace_id
+        host = f"{workspace}.ap-southeast-1.maas.aliyuncs.com" if workspace else "dashscope-intl.aliyuncs.com"
+        url = f"https://{host}/compatible-mode/v1/chat/completions"
+        model = settings.evidence_vision_cloud_model
+        routing = {}
     if not key:
         raise CloudProviderNotConfigured()
-    workspace = settings.dashscope_workspace_id
-    host = f"{workspace}.ap-southeast-1.maas.aliyuncs.com" if workspace else "dashscope-intl.aliyuncs.com"
     with httpx.Client(timeout=httpx.Timeout(45, connect=5), trust_env=False, follow_redirects=False) as client:
         response = client.post(
-            f"https://{host}/compatible-mode/v1/chat/completions",
+            url,
             headers={"Authorization": f"Bearer {key}"},
             json={
-                "model": settings.evidence_vision_cloud_model,
+                "model": model,
+                **routing,
                 "temperature": 0,
                 "max_tokens": 384,
                 "response_format": {"type": "json_object"},

@@ -21,12 +21,14 @@ from app.schema.hr import HrSubmitRequest, MockApplyRequest, MockSeedRecord
 from app.services.hr_connector import connector
 
 
-def _source(email) -> str:
+def _source(case, email) -> str:
+    if case.manual_source:
+        return case.manual_source
     return "outlook" if email.source_id.startswith("outlook:") else "mailpit"
 
 
 def _record_id(case, version, email) -> str:
-    identity = [_source(email), case.employee_id, version.normalized["date"], version.normalized["shift"]]
+    identity = [_source(case, email), case.employee_id, version.normalized["date"], version.normalized["shift"]]
     return hashlib.sha256(json.dumps(identity, ensure_ascii=False).encode()).hexdigest()
 
 
@@ -155,7 +157,7 @@ def seed(db: Session, selection: CaseFilters, user: User) -> dict:
         record_id = _record_id(case, version, email)
         records[record_id] = MockSeedRecord(
             id=record_id,
-            source=_source(email),
+            source=_source(case, email),
             employee_id=case.employee_id,
             employee_name=data["name"],
             department=department.name,

@@ -55,7 +55,9 @@ class JoinArgs(StrictModel):
 
 class DeriveArgs(StrictModel):
     target_column: str
-    operation: Literal["strip", "lower", "upper", "year", "concat", "coalesce", "literal", "multiply", "divide"]
+    operation: Literal[
+        "strip", "lower", "upper", "year", "concat", "coalesce", "literal", "add", "subtract", "multiply", "divide"
+    ]
     columns: list[str] = Field(default_factory=list, max_length=10)
     value: str = ""
     separator: str = " "
@@ -553,13 +555,18 @@ def execute(step, inputs, context):
                     value = date.fromisoformat(first).year
                 except ValueError as error:
                     raise InputError(message("assistant.data.iso_date")) from error
-            elif args.operation in {"multiply", "divide"}:
+            elif args.operation in {"add", "subtract", "multiply", "divide"}:
                 if len(values) != 2:
                     raise InputError(message("assistant.data.input_count"))
                 a, b = map(number, values)
                 if args.operation == "divide" and not b:
                     raise InputError(message("assistant.data.zero_division"))
-                value = output_number(a * b if args.operation == "multiply" else a / b)
+                value = output_number({
+                    "add": lambda: a + b,
+                    "subtract": lambda: a - b,
+                    "multiply": lambda: a * b,
+                    "divide": lambda: a / b,
+                }[args.operation]())
             else:
                 value = {
                     "strip": lambda: first.strip(),

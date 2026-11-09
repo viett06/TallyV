@@ -1,7 +1,8 @@
 from datetime import date
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from fastapi import UploadFile
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.core.config import settings
 from app.schema.common import IsoDateTime, View
@@ -33,6 +34,29 @@ class CaseReviewRequest(BaseModel):
     note: str = Field(default="", max_length=2000)
     acknowledge_exception: bool = False
     override_reason: str = Field(default="", max_length=1000)
+
+
+class ManualCaseRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    employee_id: str = Field(min_length=1, max_length=30)
+    work_date: date
+    cycle_start: date | None = None
+    shift: str = Field(default="", max_length=120)
+    punch: Literal["", "IN", "OUT", "NA"] = ""
+    explanation: str = Field(min_length=1, max_length=2000)
+    evidence: list[UploadFile] = Field(default_factory=list, max_length=5)
+
+
+class CreatedCase(BaseModel):
+    id: int
+    code: str
+
+
+class DeleteCaseRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    reason: str = Field(min_length=5, max_length=1000)
 
 
 class BulkConfirmRequest(BaseModel):
@@ -88,7 +112,7 @@ class CaseView(View):
     data: dict[str, str]
     analysis: AnalysisView
     department: str
-    source: SourceView
+    source: SourceView | None
     evidence_count: int
     bulk_eligible: bool
     proposed_count: int
@@ -117,7 +141,7 @@ class EvidenceView(View):
 class CaseVersionView(View):
     id: int
     case_id: int
-    attachment_id: int
+    attachment_id: int | None
     sheet: str
     row_number: int
     fingerprint: str

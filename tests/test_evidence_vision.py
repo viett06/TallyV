@@ -1,5 +1,4 @@
 from base64 import b64encode
-from hashlib import sha256
 from io import BytesIO
 from json import loads
 from types import SimpleNamespace
@@ -11,7 +10,7 @@ from pydantic import SecretStr
 
 from app.core.config import settings
 from app.services import analysis, gemini
-from app.services.evidence_cloud import CloudImageNotApproved, CloudProviderNotConfigured
+from app.services.evidence_cloud import CloudProviderNotConfigured
 from app.services.evidence_vision import Scene, observe
 
 
@@ -55,12 +54,12 @@ def test_vision_only_sends_image_to_internal_ollama(monkeypatch):
     assert b64encode(content) in request.content
 
 
-def test_qwen_cloud_sends_only_the_approved_test_image_to_alibaba(monkeypatch):
+@pytest.mark.parametrize("provider", ["qwen_cloud", "openrouter"])
+def test_cloud_vision_sends_the_image_directly(monkeypatch, provider):
     image = BytesIO()
     Image.new("RGB", (32, 32), "#987abc").save(image, format="PNG")
     content = image.getvalue()
-    monkeypatch.setattr(settings, "evidence_vision_provider", "qwen_cloud")
-    monkeypatch.setattr(settings, "evidence_vision_cloud_test_sha256", sha256(content).hexdigest())
+    monkeypatch.setattr(settings, "evidence_vision_provider", provider)
     monkeypatch.setattr(settings, "dashscope_workspace_id", "llm-test")
     requests = []
 
@@ -79,35 +78,57 @@ def test_qwen_cloud_sends_only_the_approved_test_image_to_alibaba(monkeypatch):
         )
 
     http_client = httpx.Client
-    monkeypatch.setattr(httpx, "Client", lambda **kw: http_client(transport=httpx.MockTransport(respond), **kw))
-    with pytest.raises(CloudImageNotApproved):
-        observe(content + b"not approved")
+
+    def client(**kwargs):
+        assert kwargs["trust_env"] is False and kwargs["follow_redirects"] is False
+        return http_client(transport=httpx.MockTransport(respond), **kwargs)
+
+    monkeypatch.setattr(httpx, "Client", client)
+    with pytest.raises(ValueError, match="require a PNG"):
+        observe(b"invalid image")
     with pytest.raises(CloudProviderNotConfigured):
         observe(content)
     assert requests == []
 
-    monkeypatch.setattr(settings, "dashscope_api_key", SecretStr("synthetic-test-key"))
-    assert observe(content).person_visible is False
+    api_key_field = "openrouter_api_key" if provider == "openrouter" else "dashscope_api_key"
+    monkeypatch.setattr(settings, api_key_field, SecretStr("synthetic-test-key"))
+    monkeypatch.setattr(settings, "evidence_vision_enabled", True)
+    monkeypatch.setattr(analysis, "read_bytes", lambda _: content)
+    evidence = SimpleNamespace(path="private")
+    analysis.read_evidence(evidence, {"employee_id": "NV001", "date": "2026-11-09"})
+    assert evidence.extracted["vision_status"] == "COMPLETE"
+    assert evidence.extracted["scene"]["person_visible"] is False
     (request,) = requests
-    assert str(request.url) == "https://llm-test.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions"
     assert request.headers["Authorization"] == "Bearer synthetic-test-key"
     payload = loads(request.content)
-    assert payload["model"] == "qwen3-vl-8b-instruct"
+    if provider == "openrouter":
+        assert str(request.url) == "https://openrouter.ai/api/v1/chat/completions"
+        assert payload["model"] == "qwen/qwen3-vl-8b-instruct"
+        assert payload["provider"] == {"only": ["parasail"], "allow_fallbacks": False, "require_parameters": True}
+    else:
+        assert (
+            str(request.url) == "https://llm-test.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/chat/completions"
+        )
+        assert payload["model"] == "qwen3-vl-8b-instruct" and "provider" not in payload
+    assert evidence.extracted["vision_model"] == payload["model"]
+    assert payload["response_format"] == {"type": "json_object"}
+    assert "NV001" not in request.content.decode()
     assert payload["messages"][0]["content"][0]["image_url"]["url"] == (
         "data:image/png;base64," + b64encode(content).decode("ascii")
     )
 
 
-def test_unapproved_cloud_image_keeps_local_ocr_and_records_the_block(monkeypatch):
-    monkeypatch.setattr(settings, "evidence_vision_provider", "qwen_cloud")
+@pytest.mark.parametrize("provider", ["qwen_cloud", "openrouter"])
+def test_invalid_cloud_image_keeps_local_ocr_and_records_unavailable(monkeypatch, provider):
+    monkeypatch.setattr(settings, "evidence_vision_provider", provider)
     monkeypatch.setattr(settings, "evidence_vision_enabled", True)
     monkeypatch.setattr(settings, "ocr_enabled", True)
-    monkeypatch.setattr(analysis, "read_bytes", lambda _: b"not approved")
+    monkeypatch.setattr(analysis, "read_bytes", lambda _: b"invalid image")
     monkeypatch.setattr(analysis, "read_text", lambda *a, **kw: "CAMERA 09/11/2026 08:03")
     evidence = SimpleNamespace(path="private")
     analysis.read_evidence(evidence, {"employee_id": "NV001", "date": "2026-11-09"})
     assert evidence.extracted["time"] == "08:03"
-    assert evidence.extracted["vision_status"] == "TEST_IMAGE_REQUIRED"
+    assert evidence.extracted["vision_status"] == "UNAVAILABLE"
     assert "scene" not in evidence.extracted
 
 

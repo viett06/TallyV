@@ -1,0 +1,6 @@
+# Optional, after compose.yaml and compose.llm.yaml, for clients outside Docker.
+services:
+  ollama:
+    networks: [internal, access]
+    ports:
+      - "${TALLYV_LLM_BIND_IP:-127.0.0.1}:${TALLYV_LLM_HOST_PORT:-11436}:11434"

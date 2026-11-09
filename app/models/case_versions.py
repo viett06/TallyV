@@ -13,7 +13,7 @@ class CaseVersion(Base):
     __table_args__ = (UniqueConstraint("case_id", "fingerprint"),)
     id: Mapped[int] = mapped_column(primary_key=True)
     case_id: Mapped[int] = mapped_column(ForeignKey("attendance_cases.id"))
-    attachment_id: Mapped[int] = mapped_column(ForeignKey("attachments.id"))
+    attachment_id: Mapped[int | None] = mapped_column(ForeignKey("attachments.id"))
     sheet: Mapped[str] = mapped_column(String(100), default=SHEET_NAME)
     row_number: Mapped[int] = mapped_column(Integer)
     fingerprint: Mapped[str] = mapped_column(String(64))

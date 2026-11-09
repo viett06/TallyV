@@ -1,4 +1,6 @@
-from fastapi import APIRouter
+from typing import Annotated
+
+from fastapi import APIRouter, Form
 
 from app.api.deps import DBSession, Filters, HRUser
 from app.schema.cases import (
@@ -7,6 +9,9 @@ from app.schema.cases import (
     CaseDetailView,
     CaseListView,
     CaseReviewRequest,
+    CreatedCase,
+    DeleteCaseRequest,
+    ManualCaseRequest,
     VersionDecisionRequest,
 )
 from app.schema.common import OperationResult
@@ -28,9 +33,19 @@ def list_cases(
     return cases.list_cases(db, selection, page, page_size, sort, direction)
 
 
+@router.post("", response_model=CreatedCase, status_code=201)
+def create_case(body: Annotated[ManualCaseRequest, Form()], db: DBSession, user: HRUser):
+    return cases.create_case(db, body, user)
+
+
 @router.get("/{case_id}", response_model=CaseDetailView)
 def detail(case_id: int, db: DBSession, user: HRUser):
     return cases.case_detail(db, case_id)
+
+
+@router.delete("/{case_id}", response_model=OperationResult)
+def delete_case(case_id: int, body: DeleteCaseRequest, db: DBSession, user: HRUser):
+    return cases.delete_case(db, case_id, body, user)
 
 
 @router.patch("/{case_id}/review", response_model=OperationResult)

@@ -35,7 +35,7 @@ def queue_analysis(db: Session, selection: CaseFilters, user: User) -> dict:
     queued = 0
     rows = case_crud.list_rows(db, selection)
     cases = {case.id: case for case in case_crud.list_for_update(db, [row[0].id for row in rows])}
-    for result in case_crud.list_analysis_results(db, selection, for_update=True):
+    for result in case_crud.list_analysis_results(db, selection, for_update=True, locked_case_ids=list(cases)):
         if result.status not in {"NOT_STARTED", "FAILED"}:
             continue
         version = case_crud.get_version(db, result.version_id)
@@ -93,6 +93,10 @@ def retry_job(db: Session, job_id: int, user: User) -> dict:
         raise AppError(404, "Không tìm thấy công việc trong danh sách này.")
     if not job or job.status != "FAILED":
         raise AppError(409, message("jobs.retry_requires_failure"))
+    if job.kind == "ANALYZE":
+        version = case_crud.get_version(db, job.payload["version_id"])
+        if not version or not case_crud.get_for_update(db, version.case_id):
+            raise AppError(404, message("cases.not_found"))
     if job.kind == "HR_SUBMIT":
         from app.services.hr import retry
 

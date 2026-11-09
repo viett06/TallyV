@@ -15,6 +15,19 @@ from app.core.i18n import message
 
 KEYS = ["code", "employee_id", "name", "department", "date", "shift", "punch", "explanation", "evidence"]
 MAX_BYTES = 15 * 1024 * 1024
+MAX_IMAGE_BYTES = 8 * 1024 * 1024
+
+
+def normalize_evidence_image(content: bytes) -> bytes:
+    if len(content) > MAX_IMAGE_BYTES:
+        raise ValueError(message("excel.image_too_large"))
+    with Image.open(BytesIO(content)) as image:
+        if image.width * image.height > 16_000_000:
+            raise ValueError(message("excel.image_pixel_limit"))
+        image.load()
+        output = BytesIO()
+        image.convert("RGB").save(output, format="PNG")
+        return output.getvalue()
 
 
 def strict_date(value):
@@ -87,16 +100,7 @@ def parse_workbook(content):
                 bad_rows.add(row)
             continue
         try:
-            image_content = picture._data()
-            if len(image_content) > 8 * 1024 * 1024:
-                raise ValueError(message("excel.image_too_large"))
-            with Image.open(BytesIO(image_content)) as image:
-                if image.width * image.height > 16_000_000:
-                    raise ValueError(message("excel.image_pixel_limit"))
-                image.load()
-                output = BytesIO()
-                image.convert("RGB").save(output, format="PNG")
-                image_content = output.getvalue()
+            image_content = normalize_evidence_image(picture._data())
             images.setdefault(row, []).append(
                 {
                     "content": image_content,

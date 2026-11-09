@@ -15,6 +15,10 @@ def start(db, job):
 def execute(db, job):
     run = conversations.run(db, job.payload["run_id"])
     if run.kind == "DATA_TASK":
+        if run.method == "HYBRID":
+            from app.assistant.services.hybrid import advance
+
+            return advance(db, job)
         from app.assistant.services.tasks import advance
 
         return advance(db, job)

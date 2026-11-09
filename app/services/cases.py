@@ -1,5 +1,11 @@
+import hashlib
+import json
+from uuid import uuid4
+
+from PIL import Image
 from sqlalchemy.orm import Session
 
+from app.core.attendance import PUNCH_IN, PUNCH_NA, PUNCH_OUT
 from app.core.config import settings
 from app.core.errors import AppError
 from app.core.i18n import message
@@ -7,10 +13,110 @@ from app.core.serialization import json_value
 from app.core.serialization import model_dict as record
 from app.core.time import utcnow
 from app.crud import cases as case_crud
+from app.crud import catalog as catalog_crud
 from app.crud import hr as hr_crud
 from app.crud import jobs as job_crud
-from app.models import AuditLog, User
-from app.schema.cases import BulkConfirmRequest, CaseFilters, CaseReviewRequest, VersionDecisionRequest
+from app.models import AnalysisResult, AttendanceCase, AuditLog, CaseVersion, EvidenceFile, User
+from app.schema.cases import (
+    BulkConfirmRequest,
+    CaseFilters,
+    CaseReviewRequest,
+    DeleteCaseRequest,
+    ManualCaseRequest,
+    VersionDecisionRequest,
+)
+from app.services.excel import MAX_IMAGE_BYTES, normalize_evidence_image
+from app.services.review_calendar import parse_cycle, payroll_period, period_bounds
+from app.services.storage import store_bytes
+
+
+def create_case(db: Session, body: ManualCaseRequest, user: User) -> dict:
+    from app.services.catalog import ensure_period
+
+    employee = catalog_crud.get_employee(db, body.employee_id)
+    if not employee:
+        raise AppError(422, message("imports.employee_unknown"))
+    department = catalog_crud.get_department(db, employee.department_id)
+    period_id = payroll_period(body.work_date)
+    try:
+        period_bounds(period_id)
+    except (ValueError, OverflowError):
+        raise AppError(422, message("cases.invalid_work_date")) from None
+    if body.cycle_start:
+        try:
+            parse_cycle(period_id, body.cycle_start.isoformat())
+        except ValueError:
+            raise AppError(422, message("imports.invalid_cycle")) from None
+
+    images = []
+    for index, upload in enumerate(body.evidence, 1):
+        try:
+            images.append(normalize_evidence_image(upload.file.read(MAX_IMAGE_BYTES + 1)))
+        except (ValueError, OSError, SyntaxError, Image.DecompressionBombError):
+            raise AppError(422, message("cases.invalid_evidence", value0=index)) from None
+
+    ensure_period(db, period_id)
+    code = f"HR-{uuid4().hex.upper()}"
+    data = {
+        "code": code,
+        "employee_id": employee.id,
+        "name": employee.name,
+        "department": department.name,
+        "date": body.work_date.isoformat(),
+        "shift": body.shift,
+        "punch": {"IN": PUNCH_IN, "OUT": PUNCH_OUT, "NA": PUNCH_NA, "": ""}[body.punch],
+        "explanation": body.explanation,
+        "evidence": "",
+    }
+    case = AttendanceCase(
+        code=code,
+        employee_id=employee.id,
+        department_id=department.id,
+        period_id=period_id,
+        cycle_start=body.cycle_start,
+        manual_source=settings.mail_provider,
+    )
+    db.add(case)
+    db.flush()
+    version = CaseVersion(
+        case_id=case.id,
+        sheet="",
+        row_number=0,
+        raw=data,
+        normalized=data,
+        fingerprint=hashlib.sha256(json.dumps(data, sort_keys=True, ensure_ascii=False).encode()).hexdigest(),
+    )
+    db.add(version)
+    db.flush()
+    case.active_version_id = version.id
+    for index, content in enumerate(images, 1):
+        path, sha = store_bytes(content, ".png")
+        db.add(EvidenceFile(version_id=version.id, path=path, sha256=sha, anchor=f"#{index}"))
+    db.add(AnalysisResult(version_id=version.id, status="NOT_STARTED", assessment="NOT_EVALUATED"))
+    db.add(AuditLog(case_id=case.id, actor=user.username, action="CASE_CREATED", after={"version_id": version.id}))
+    db.commit()
+    return {"id": case.id, "code": code}
+
+
+def delete_case(db: Session, case_id: int, body: DeleteCaseRequest, user: User) -> dict:
+    case = case_crud.get_for_update(db, case_id)
+    if not case:
+        raise AppError(404, message("cases.not_found"))
+    if any(s.status != "CANCELLED" for s in hr_crud.list_submissions(db, case.id)):
+        raise AppError(409, message("cases.delete_has_submission"))
+    case.deleted_at = utcnow()
+    db.add(
+        AuditLog(
+            case_id=case.id,
+            actor=user.username,
+            action="CASE_DELETED",
+            before={"hr_status": case.hr_status},
+            after={"deleted_at": case.deleted_at.isoformat()},
+            reason=body.reason,
+        )
+    )
+    db.commit()
+    return {"ok": True}
 
 
 def eligible(db: Session, case, analysis) -> bool:
@@ -45,7 +151,7 @@ def case_item(db: Session, row) -> dict:
             "attachment_id": version.attachment_id,
             "sheet": version.sheet,
             "row": version.row_number,
-        },
+        } if email else None,
         "evidence_count": evidence_count,
         "bulk_eligible": eligible(db, case, result),
         "proposed_count": case_crud.proposed_count(db, case.id),

@@ -16,6 +16,8 @@ class AttendanceCase(Base):
     department_id: Mapped[int] = mapped_column(ForeignKey("departments.id"))
     period_id: Mapped[str] = mapped_column(ForeignKey("review_periods.id"))
     cycle_start: Mapped[date | None] = mapped_column(Date, nullable=True)
+    manual_source: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     active_version_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     hr_status: Mapped[str] = mapped_column(String(30), default="PENDING_REVIEW")
     hr_category: Mapped[str | None] = mapped_column(String(40), nullable=True)

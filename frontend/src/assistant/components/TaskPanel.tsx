@@ -6,6 +6,7 @@ import type {Assignment,DatasetPage,Run} from '../types'
 
 const toolNames:Record<string,MessageKey>={inspect_sources:'assistant.tool_inspect',create_plan:'assistant.tool_plan',classify_values:'assistant.tool_classify',filter_rows:'assistant.tool_filter',aggregate_rows:'assistant.tool_aggregate',join_rows:'assistant.tool_join',derive_column:'assistant.tool_derive',select_columns:'assistant.tool_select',sort_rows:'assistant.tool_sort',deduplicate:'assistant.tool_dedupe',pivot_rows:'assistant.tool_pivot',validate_results:'assistant.tool_validate',render_outputs:'assistant.tool_render',replace_values:'assistant.tool_replace',validate_rows:'assistant.tool_validate_rows',write_narrative:'assistant.tool_narrative',configure_step:'assistant.tool_configure',bind_report:'assistant.tool_bind_report'}
 const statusNames:Record<string,MessageKey>={QUEUED:'assistant.task_pending',PENDING:'assistant.task_pending',RUNNING:'assistant.task_running',NEEDS_INPUT:'assistant.task_input',COMPLETED:'assistant.task_complete',FAILED:'assistant.task_failed',CANCELLED:'assistant.task_cancelled'}
+Object.assign(toolNames,{describe_sheet:'assistant.tool_describe_sheet',generate_script:'assistant.tool_generate_script',execute_script:'assistant.tool_execute_script',verify_script:'assistant.tool_verify_script'})
 export const statusLabel=(status:string)=>t(statusNames[status]||'assistant.task_pending')
 export function TaskPlan({run}:{run:Run}){
  const steps=Array.isArray(run.plan.steps)?run.plan.steps as {id:string;tool:string;goal?:string}[]:[]

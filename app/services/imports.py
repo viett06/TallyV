@@ -81,8 +81,12 @@ def ingest_attachment(db: Session, attachment: Attachment) -> None:
                 ).encode()
             ).hexdigest()
             case = import_crud.find_case_for_update(db, n["code"])
-            if case and import_crud.active_source(db, case).startswith("outlook:") != email.source_id.startswith(
-                "outlook:"
+            if case and case.deleted_at:
+                batch.duplicate_count += 1
+                continue
+            if case and (
+                case.manual_source
+                or import_crud.active_source(db, case).startswith("outlook:") != email.source_id.startswith("outlook:")
             ):
                 batch.errors = [
                     *batch.errors,

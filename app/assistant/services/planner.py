@@ -71,7 +71,7 @@ def explicit_blanks(items, columns):
     return normalized, rewrites
 
 
-def schema_call(schema, instruction, data, output_schema=None, *, bounded=False):
+def schema_call(schema, instruction, data, output_schema=None, *, bounded=False, model=None):
     output_schema = output_schema or schema.model_json_schema()
     serialized = json.dumps(data, ensure_ascii=False)
     if len(serialized) + len(instruction) + len(json.dumps(output_schema, ensure_ascii=False)) > 24000:
@@ -79,7 +79,7 @@ def schema_call(schema, instruction, data, output_schema=None, *, bounded=False)
     try:
         with httpx.Client(timeout=settings.model_timeout, trust_env=False, follow_redirects=False) as client:
             payload = {
-                "model": settings.ollama_model,
+                "model": model or settings.ollama_model,
                 "stream": bounded,
                 "format": output_schema,
                 "options": {"temperature": 0, "num_ctx": 8192, "num_predict": 1600 if bounded else 2500},
@@ -88,6 +88,8 @@ def schema_call(schema, instruction, data, output_schema=None, *, bounded=False)
                     {"role": "user", "content": serialized},
                 ],
             }
+            if model:
+                payload["think"] = False
             if bounded:
                 started = time.monotonic()
                 fragments = []
@@ -115,7 +117,7 @@ def schema_call(schema, instruction, data, output_schema=None, *, bounded=False)
 
 
 def extract_records(text, filename, expected_fields=(), request=""):
-    if settings.processing_mode != "LOCAL_LLM":
+    if settings.processing_mode == "RULE_BASED":
         raise InputError(
             "Dữ liệu là văn bản tự do. Bật LOCAL_LLM để trích xuất hoặc cung cấp bảng/khối “trường: giá trị”."
         )

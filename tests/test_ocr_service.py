@@ -1,6 +1,6 @@
-from hashlib import sha256
+from base64 import b64encode
 from io import BytesIO
-from json import loads
+from json import dumps, loads
 from types import SimpleNamespace
 
 import httpx
@@ -13,7 +13,7 @@ from sqlalchemy import select
 from app.core.config import Settings, settings
 from app.demo.generate import picture, workbook
 from app.models import AnalysisResult, CaseVersion, EvidenceFile
-from app.services.analysis import analyze, read_evidence
+from app.services.analysis import analyze, read_evidence, read_evidence_text
 from app.services.evidence_vision import Scene
 from ocr_service.app import Line, OcrOutput, ServiceSettings, create_app
 from tests.helpers import ingest, row
@@ -124,10 +124,54 @@ def configure_http(monkeypatch, handler):
     monkeypatch.setattr("app.services.ocr.httpx.Client", client)
 
 
-@pytest.mark.parametrize(
-    "approved, returned_model", [(False, "PP-OCRv6_medium"), (True, "PP-OCRv6_small"), (True, "PP-OCRv6_medium")]
-)
-def test_approved_images_call_remote_ocr_then_qwen_and_require_exact_ocr_model(monkeypatch, approved, returned_model):
+@pytest.mark.parametrize("case", ["valid_png", "invalid_image", "missing_key", "wrong_model"])
+def test_vlmrun_medium_ocr_sends_png_directly_and_keeps_text_regions(monkeypatch, case):
+    image = b"invalid image" if case == "invalid_image" else picture("MP001", "2026-10-01")
+    text = "Mã nhân viên: MP001\n01/10/2026 08:03"
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        assert request.method == "POST"
+        assert str(request.url) == "https://gateway.vlm.run/openai/chat/completions"
+        assert request.headers["Authorization"] == "Bearer vlmrun-test-key"
+        body = loads(request.content)
+        assert body["model"] == "paddleocr/pp-ocrv6" and body["method"] == "ocr"
+        assert body["method_params"] == {"lang": "vi"}
+        assert body["response_format"] == {"type": "json_object"}
+        parts = body["messages"][0]["content"]
+        assert parts == [
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64," + b64encode(image).decode("ascii")}}
+        ]
+        result = {
+            "model": "different" if case == "wrong_model" else "paddleocr/pp-ocrv6",
+            "method": "ocr",
+            "content": {
+                "object": "doc.ocr.lines",
+                "items": [{"bbox_xywh": [0.125, 0.25, 0.5, 0.125], "text": text, "score": 0.98}],
+            },
+        }
+        return httpx.Response(200, json={"choices": [{"message": {"content": dumps(result)}}]})
+
+    configure_http(monkeypatch, handler)
+    monkeypatch.setattr(settings, "ocr_backend", "vlmrun")
+    monkeypatch.setattr(settings, "vlmrun_api_key", SecretStr("" if case == "missing_key" else "vlmrun-test-key"))
+    monkeypatch.setattr(settings, "vlmrun_ocr_lang", "vi")
+    evidence = SimpleNamespace(ocr_text="", extracted={})
+    read_evidence_text(evidence, {"employee_id": "MP001", "date": "2026-10-01"}, image)
+
+    assert len(calls) == (1 if case in {"valid_png", "wrong_model"} else 0)
+    if case == "valid_png":
+        assert evidence.ocr_status == "READABLE" and evidence.ocr_text == text
+        assert evidence.extracted["employee_id"] == "MP001" and evidence.extracted["time"] == "08:03"
+        assert evidence.extracted["ocr_model"] == "paddleocr/pp-ocrv6"
+        assert evidence.extracted["ocr_regions"][0]["box"] == [0.125, 0.25, 0.625, 0.375]
+    else:
+        assert evidence.ocr_status == "UNAVAILABLE" and not evidence.ocr_text
+
+
+@pytest.mark.parametrize("returned_model", ["PP-OCRv6_small", "PP-OCRv6_medium"])
+def test_images_call_remote_ocr_then_qwen_and_require_exact_ocr_model(monkeypatch, returned_model):
     image = picture("MP001", "2026-10-01")
     monkeypatch.setattr("app.services.analysis.read_bytes", lambda _: image)
     monkeypatch.setattr(settings, "ocr_remote_url", "https://ocr.example.test")
@@ -135,7 +179,6 @@ def test_approved_images_call_remote_ocr_then_qwen_and_require_exact_ocr_model(m
     monkeypatch.setattr(settings, "evidence_vision_enabled", True)
     monkeypatch.setattr(settings, "evidence_vision_provider", "qwen_cloud")
     monkeypatch.setattr(settings, "dashscope_api_key", SecretStr("qwen-test-key"))
-    monkeypatch.setattr(settings, "evidence_vision_cloud_test_sha256", sha256(image).hexdigest() if approved else "")
     calls = []
 
     def handler(request):
@@ -173,17 +216,63 @@ def test_approved_images_call_remote_ocr_then_qwen_and_require_exact_ocr_model(m
     monkeypatch.setattr(settings, "ocr_backend", "remote")
     evidence = SimpleNamespace(path="private")
     read_evidence(evidence, {"employee_id": "MP001", "date": "2026-10-01"})
-    if not approved:
-        assert calls == [] and evidence.extracted["vision_status"] == "TEST_IMAGE_REQUIRED"
-        assert evidence.ocr_status == "UNAVAILABLE"
+    assert len(calls) == 2 and calls[0] == "ocr.example.test" and calls[1].endswith("aliyuncs.com")
+    assert evidence.extracted["vision_status"] == "COMPLETE"
+    if returned_model == "PP-OCRv6_medium":
+        assert evidence.ocr_status == "READABLE" and evidence.extracted["time"] == "08:03"
+        assert evidence.extracted["ocr_model"] == "PP-OCRv6_medium" and evidence.extracted["ocr_regions"]
     else:
-        assert len(calls) == 2 and calls[0] == "ocr.example.test" and calls[1].endswith("aliyuncs.com")
-        assert evidence.extracted["vision_status"] == "COMPLETE"
-        if returned_model == "PP-OCRv6_medium":
-            assert evidence.ocr_status == "READABLE" and evidence.extracted["time"] == "08:03"
-            assert evidence.extracted["ocr_model"] == "PP-OCRv6_medium" and evidence.extracted["ocr_regions"]
+        assert evidence.ocr_status == "UNAVAILABLE" and not evidence.ocr_text
+
+
+@pytest.mark.parametrize("source", ["mailpit:test", "outlook:test"])
+def test_imported_images_go_to_cloud_providers_without_outlook_test_mode(context, monkeypatch, source):
+    sessions, _ = context
+    first = picture("MP001", "2026-10-01")
+    second = picture("MP001", "2026-10-02")
+    images_sent = []
+
+    def handler(request):
+        body = loads(request.content)
+        url = body["messages"][0]["content"][0]["image_url"]["url"]
+        images_sent.append((request.url.host, url))
+        if request.url.host == "gateway.vlm.run":
+            content = {"model": body["model"], "method": "ocr", "content": {"object": "doc.ocr.lines", "items": []}}
         else:
-            assert evidence.ocr_status == "UNAVAILABLE" and not evidence.ocr_text
+            assert request.url.host == "openrouter.ai"
+            content = Scene(
+                kind="OTHER",
+                person_visible=False,
+                person_at_desk=False,
+                posture=None,
+                screen_visible=False,
+                description="Ảnh thử nghiệm.",
+            ).model_dump()
+        return httpx.Response(
+            200, json={"choices": [{"finish_reason": "stop", "message": {"content": dumps(content)}}]}
+        )
+
+    configure_http(monkeypatch, handler)
+    monkeypatch.setattr(settings, "mail_provider", source.split(":", 1)[0])
+    monkeypatch.setattr(settings, "outlook_test_mode", False)
+    monkeypatch.setattr(settings, "ocr_backend", "vlmrun")
+    monkeypatch.setattr(settings, "vlmrun_api_key", SecretStr("test-ocr"))
+    monkeypatch.setattr(settings, "evidence_vision_enabled", True)
+    monkeypatch.setattr(settings, "evidence_vision_provider", "openrouter")
+    monkeypatch.setattr(settings, "openrouter_api_key", SecretStr("test-vision"))
+    with sessions() as db:
+        ingest(db, workbook([row(), row(code="TEST-002", day="2026-10-02")], {2: [first], 3: [second]}), source)
+        versions = db.scalars(select(CaseVersion.id).order_by(CaseVersion.id)).all()
+        assert len(versions) == 2
+        for version in versions:
+            analyze(db, version)
+        records = db.scalars(select(EvidenceFile).order_by(EvidenceFile.id)).all()
+        assert len(records) == 2
+        assert all(item.extracted["vision_status"] == "COMPLETE" for item in records)
+        assert all(item.ocr_status == "UNREADABLE" for item in records)
+
+    assert [host for host, _ in images_sent] == ["gateway.vlm.run", "openrouter.ai"] * 2
+    assert len({url for _, url in images_sent}) == 2
 
 
 def test_tallyv_posts_image_and_uses_http_text_for_existing_conflict_checks(context, monkeypatch):

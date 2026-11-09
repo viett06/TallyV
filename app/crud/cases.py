@@ -22,15 +22,16 @@ def case_query(filters: CaseFilters):
         .join(CaseVersion, AttendanceCase.active_version_id == CaseVersion.id)
         .join(AnalysisResult, AnalysisResult.version_id == CaseVersion.id)
         .join(Department, Department.id == AttendanceCase.department_id)
-        .join(Attachment, Attachment.id == CaseVersion.attachment_id)
-        .join(Email, Email.id == Attachment.email_id)
+        .outerjoin(Attachment, Attachment.id == CaseVersion.attachment_id)
+        .outerjoin(Email, Email.id == Attachment.email_id)
+        .where(AttendanceCase.deleted_at.is_(None))
     )
     if filters.period:
         query = query.where(AttendanceCase.period_id == filters.period)
     if filters.source == "outlook":
-        query = query.where(Email.source_id.startswith("outlook:"))
+        query = query.where(or_(Email.source_id.startswith("outlook:"), AttendanceCase.manual_source == "outlook"))
     elif filters.source == "mailpit":
-        query = query.where(~Email.source_id.startswith("outlook:"))
+        query = query.where(or_(~Email.source_id.startswith("outlook:"), AttendanceCase.manual_source == "mailpit"))
     if filters.cycle == "unassigned":
         query = query.where(AttendanceCase.cycle_start.is_(None))
     elif filters.cycle:
@@ -62,12 +63,16 @@ def list_rows(db: Session, filters: CaseFilters, *, ordered: bool = False):
     return db.execute(query).all()
 
 
-def list_analysis_results(db: Session, filters: CaseFilters, *, for_update: bool = False) -> list[AnalysisResult]:
-    case_ids = case_query(filters).with_only_columns(AttendanceCase.id)
+def list_analysis_results(
+    db: Session, filters: CaseFilters, *, for_update: bool = False, locked_case_ids: list[int] | None = None
+) -> list[AnalysisResult]:
+    selected = case_query(filters).with_only_columns(AttendanceCase.id)
+    if locked_case_ids is not None:
+        selected = selected.where(AttendanceCase.id.in_(locked_case_ids))
     query = (
         select(AnalysisResult)
         .join(CaseVersion, CaseVersion.id == AnalysisResult.version_id)
-        .where(CaseVersion.case_id.in_(case_ids), CaseVersion.status.in_(["ACTIVE", "PROPOSED"]))
+        .where(CaseVersion.case_id.in_(selected), CaseVersion.status.in_(["ACTIVE", "PROPOSED"]))
         .order_by(AnalysisResult.id)
     )
     if for_update:
@@ -94,12 +99,21 @@ def get_row(db: Session, case_id: int):
 
 
 def get_for_update(db: Session, case_id: int) -> AttendanceCase | None:
-    return db.scalar(select(AttendanceCase).where(AttendanceCase.id == case_id).with_for_update())
+    return db.scalar(
+        select(AttendanceCase)
+        .where(AttendanceCase.id == case_id, AttendanceCase.deleted_at.is_(None))
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
 
 
 def list_for_update(db: Session, ids: list[int] | None = None) -> list[AttendanceCase]:
     query = (
-        select(AttendanceCase).order_by(AttendanceCase.id).with_for_update().execution_options(populate_existing=True)
+        select(AttendanceCase)
+        .where(AttendanceCase.deleted_at.is_(None))
+        .order_by(AttendanceCase.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if ids is not None:
         query = query.where(AttendanceCase.id.in_(ids))

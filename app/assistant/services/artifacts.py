@@ -171,6 +171,8 @@ def run_download(db, run_id, user, kind="zip"):
     if not run:
         raise AppError(404, "Không tìm thấy bộ hồ sơ.")
     require_conversation(db, run.conversation_id, user.id)
+    if run.method == "HYBRID" and (run.status != "COMPLETED" or not run.state.get("hybrid_verified")):
+        raise AppError(409, "Bộ kết quả chưa qua kiểm chứng.")
     if kind == "csv":
         if run.kind == "DATA_TASK":
             from app.assistant.services import datasets

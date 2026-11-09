@@ -111,6 +111,9 @@ def build_word_table(dataset):
         border = etree.SubElement(borders, documents.W + side)
         border.set(documents.W + "val", "single")
         border.set(documents.W + "sz", "4")
+    grid = etree.SubElement(table, documents.W + "tblGrid")
+    for _ in dataset["columns"]:
+        etree.SubElement(grid, documents.W + "gridCol")
     values = [dataset["columns"], *[[r["values"].get(c, "") for c in dataset["columns"]] for r in dataset["rows"]]]
     for index, values_row in enumerate(values):
         row = etree.SubElement(table, documents.W + "tr")

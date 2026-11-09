@@ -1,0 +1,3 @@
+FROM /models/Qwen3.5-4B-Q4_K_M.gguf
+RENDERER qwen3.5
+PARSER qwen3.5

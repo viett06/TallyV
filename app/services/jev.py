@@ -26,16 +26,24 @@ class JevResponse(BaseModel):
 
 def verify(case: dict, rule: dict, category: Category, reason_signals: str, evidence_matches: list[dict]) -> dict:
     threshold = settings.jev_threshold
-    result = {"model": settings.jev_model, "threshold": threshold}
+    if settings.jev_provider == "openrouter":
+        url = "https://openrouter.ai/api/v1/systemone"
+        key = settings.openrouter_api_key
+        model = "typesafe/jev-1.14"
+    else:
+        url = "https://api.typesafe.ai/v1/systemone"
+        key = settings.jev_api_key
+        model = settings.jev_model
+    result = {"model": model, "threshold": threshold}
     if not reason_signals or reason_signals == "[DA_AN]":
         return {**result, "status": "NEEDS_REVIEW"}
     try:
         with httpx.Client(timeout=httpx.Timeout(10, connect=3), trust_env=False, follow_redirects=False) as client:
             response = client.post(
-                "https://api.typesafe.ai/v1/systemone",
-                headers={"Authorization": f"Bearer {settings.jev_api_key.get_secret_value()}"},
+                url,
+                headers={"Authorization": f"Bearer {key.get_secret_value().strip()}"},
                 json={
-                    "model": settings.jev_model,
+                    "model": model,
                     "state": {
                         "case": case,
                         "hr_rule": rule,

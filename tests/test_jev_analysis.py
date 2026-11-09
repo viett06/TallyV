@@ -12,6 +12,7 @@ from app.models import AnalysisResult, AttendanceCase
 from tests.helpers import ingest, row
 
 
+@pytest.mark.parametrize("openrouter", [False, True], ids=["direct", "openrouter"])
 @pytest.mark.parametrize(
     ("category", "supported", "overstates", "ocr_day", "verification_status", "assessment"),
     [
@@ -25,13 +26,17 @@ from tests.helpers import ingest, row
     ],
 )
 def test_jev_checks_gemini_proposals_without_sending_original_identifiers(
-    context, monkeypatch, category, supported, overstates, ocr_day, verification_status, assessment
+    context, monkeypatch, category, supported, overstates, ocr_day, verification_status, assessment, openrouter
 ):
     sessions, client = context
     monkeypatch.setattr(settings, "processing_mode", "GEMINI")
     monkeypatch.setattr(settings, "gemini_api_key", SecretStr("gemini-test-key"))
     monkeypatch.setattr(settings, "jev_enabled", True)
     monkeypatch.setattr(settings, "jev_api_key", SecretStr("jev-test-key"))
+    if openrouter:
+        monkeypatch.setattr(settings, "gemini_provider", "openrouter")
+        monkeypatch.setattr(settings, "jev_provider", "openrouter")
+        monkeypatch.setattr(settings, "openrouter_api_key", SecretStr("shared-test-key"))
     monkeypatch.setattr(settings, "jev_threshold", 0.85)
     monkeypatch.setattr(settings, "ocr_enabled", True)
     monkeypatch.setattr("app.services.analysis.read_text", lambda *a, **k: f"MP001 {ocr_day}/10/2026 08:03 MẤT KẾT NỐI")
@@ -46,7 +51,7 @@ def test_jev_checks_gemini_proposals_without_sending_original_identifiers(
 
     def respond(request):
         requests.append(request)
-        if request.url.host == "generativelanguage.googleapis.com":
+        if request.url.host == "generativelanguage.googleapis.com" or request.url.path == "/api/v1/chat/completions":
             date_status = "MATCH" if ocr_day == "01" else "MISMATCH"
             text = json.dumps(
                 {
@@ -62,6 +67,8 @@ def test_jev_checks_gemini_proposals_without_sending_original_identifiers(
                     ],
                 }
             )
+            if openrouter:
+                return httpx.Response(200, json={"choices": [{"finish_reason": "stop", "message": {"content": text}}]})
             return httpx.Response(
                 200, json={"candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": text}]}}]}
             )
@@ -82,15 +89,26 @@ def test_jev_checks_gemini_proposals_without_sending_original_identifiers(
     assert worker.run_one(sessions)
     assert worker.run_one(sessions)
 
-    hosts = ["generativelanguage.googleapis.com"]
+    hosts = ["openrouter.ai" if openrouter else "generativelanguage.googleapis.com"]
     if verification_status:
-        hosts.append("api.typesafe.ai")
+        hosts.append("openrouter.ai" if openrouter else "api.typesafe.ai")
     assert [request.url.host for request in requests] == hosts
+    body = json.loads(requests[0].content)
+    if openrouter:
+        assert requests[0].url.path == "/api/v1/chat/completions"
+        assert requests[0].headers["Authorization"] == "Bearer shared-test-key"
+        assert body["model"] == "google/gemini-3.8-flash"
+        assert body["response_format"]["type"] == "json_schema"
+        gemini_payload = json.loads(body["messages"][1]["content"])
+    else:
+        gemini_payload = json.loads(body["contents"][0]["parts"][0]["text"])
     if verification_status:
-        assert requests[1].url.path == "/v1/systemone"
-        assert requests[1].headers["Authorization"] == "Bearer jev-test-key"
-        gemini_payload = json.loads(json.loads(requests[0].content)["contents"][0]["parts"][0]["text"])
+        assert requests[1].url.path == ("/api/v1/systemone" if openrouter else "/v1/systemone")
+        assert requests[1].headers["Authorization"] == (
+            "Bearer shared-test-key" if openrouter else "Bearer jev-test-key"
+        )
         jev_payload = json.loads(requests[1].content)
+        assert jev_payload["model"] == ("typesafe/jev-1.14" if openrouter else "jev-1.14.0")
         assert set(jev_payload) == {"model", "state", "questions"}
         state = jev_payload["state"]
         assert state["case"] == gemini_payload["case"]

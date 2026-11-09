@@ -1,0 +1,19 @@
+# Add to the existing Docker Desktop stack to connect its worker to the Lima runner.
+services:
+  api:
+    env_file: .env.sandbox
+    environment:
+      ASSISTANT_SANDBOX_URL: https://host.docker.internal:8100
+  worker:
+    env_file: .env.sandbox
+    environment:
+      ASSISTANT_SANDBOX_URL: https://host.docker.internal:8100
+      ASSISTANT_SANDBOX_CA_FILE: /run/tallyv/sandbox-ca.pem
+    volumes:
+      - type: bind
+        source: ./.env.sandbox-ca.pem
+        target: /run/tallyv/sandbox-ca.pem
+        read_only: true
+        bind:
+          create_host_path: false
+    networks: [internal, access]

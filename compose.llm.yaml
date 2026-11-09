@@ -1,0 +1,39 @@
+# Use with compose.yaml and --profile llm. Paths are relative to the repo root.
+services:
+  ollama:
+    image: ollama/ollama:0.40.15
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/bootstrap/start.sh"]
+    environment:
+      OLLAMA_HOST: "0.0.0.0:11434"
+      OLLAMA_NO_CLOUD: "1"
+    volumes:
+      - type: bind
+        source: ${TALLYV_LLM_MODELS_DIR:-./llm-service/models}
+        target: /models
+        read_only: true
+        bind:
+          create_host_path: false
+      - ./llm-service/start.sh:/bootstrap/start.sh:ro
+      - ./llm-service/Modelfile:/bootstrap/Modelfile:ro
+      - ./llm-service/models.sha256:/bootstrap/models.sha256:ro
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/qwen-model-ready && OLLAMA_HOST=http://127.0.0.1:11434 ollama show qwen3.5:4b-q4_K_M >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      start_period: 5m
+      retries: 6
+  api:
+    environment:
+      ASSISTANT_OLLAMA_URL: http://ollama:11434
+      ASSISTANT_OLLAMA_MODEL: qwen3.5:4b-q4_K_M
+      ASSISTANT_HYBRID_OLLAMA_MODEL: qwen3.5:4b-q4_K_M
+    depends_on:
+      ollama: {condition: service_healthy}
+  worker:
+    environment:
+      ASSISTANT_OLLAMA_URL: http://ollama:11434
+      ASSISTANT_OLLAMA_MODEL: qwen3.5:4b-q4_K_M
+      ASSISTANT_HYBRID_OLLAMA_MODEL: qwen3.5:4b-q4_K_M
+    depends_on:
+      ollama: {condition: service_healthy}

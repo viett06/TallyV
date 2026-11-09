@@ -80,12 +80,16 @@ def detail(db, conversation_id, user):
                     "issue_count": len(run.state.get("issues", [])),
                     "reviewed": run.state.get("reviewed", False),
                     "superseded_by": run.state.get("superseded_by"),
-                    "validation": run.state.get("validation"),
+                    "validation": run.state.get("validation")
+                    if run.method != "HYBRID" or run.state.get("hybrid_verified")
+                    else None,
                     "catalog": [
                         {k: v for k, v in item.items() if k not in {"samples", "distinct"}}
                         for item in run.state.get("catalog", [])
                     ],
-                    "datasets": list(run.state.get("datasets", {})),
+                    "datasets": list(run.state.get("datasets", {}))
+                    if run.method != "HYBRID" or run.status == "COMPLETED"
+                    else [],
                 }
                 if run.kind == "DATA_TASK"
                 else {},
@@ -156,7 +160,8 @@ def add_message(db, conversation_id, user, body):
     if mode == "auto":
         mode = (
             "data"
-            if task_planner.is_data_request(body.text)
+            if settings.processing_mode == "HYBRID"
+            or task_planner.is_data_request(body.text)
             or len(items) != 2
             or not any(item.role == "template" for item in items)
             or any(item.role == "template" and item.name.lower().endswith(".xlsx") for item in items)
@@ -204,13 +209,19 @@ def add_message(db, conversation_id, user, body):
         )
         db.commit()
         return {"conversation_id": conversation_id, "message_id": message.id, "run_id": None}
+    hybrid = mode == "data" and settings.processing_mode == "HYBRID"
+    if hybrid and any(
+        Path(item.name).suffix.lower() not in ({".xlsx"} if item.role == "data" else {".xlsx", ".docx"})
+        for item in items
+    ):
+        raise AppError(422, "Luồng Excel nhận dữ liệu .xlsx và mẫu báo cáo .xlsx hoặc .docx.")
     request = body.text if body.attachment_ids else context.get("request", "") + "\nNgười dùng bổ sung: " + body.text
     if len(request) > 14000:
         raise AppError(422, "Hội thoại xử lý đã dài. Hãy bắt đầu yêu cầu mới với hai file và mô tả đầy đủ.")
     run = GenerationRun(
         conversation_id=conversation_id,
         message_id=message.id,
-        method=settings.processing_mode,
+        method="LOCAL_LLM" if settings.processing_mode == "HYBRID" and not hybrid else settings.processing_mode,
         request=request,
         attachment_ids=ids,
         kind="DATA_TASK" if mode == "data" else "DOCUMENT",
@@ -228,7 +239,7 @@ def add_message(db, conversation_id, user, body):
             conversation_id=conversation_id,
             actor=user.username,
             action="REQUEST",
-            details={"run_id": run.id, "attachment_ids": ids, "method": settings.processing_mode},
+            details={"run_id": run.id, "attachment_ids": ids, "method": run.method},
         )
     )
     db.commit()

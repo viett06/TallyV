@@ -1,14 +1,16 @@
 # TallyV Assistant — đặc tả nghiệp vụ và kiểm soát workflow agent
 
-Ngày: 2026-11-04. Phiên bản đặc tả: 1.0.
+Ngày: 2026-11-09. Phiên bản đặc tả: 1.1.
 
-**Trạng thái: thiết kế đích cho phiên bản MVP tiếp theo; chưa triển khai LangGraph hoặc sandbox chạy mã AI.** Assistant đang có Microsoft Agent Framework, bộ công cụ dữ liệu có kiểu, queue/checkpoint SQL, review và xuất file; mô tả hiện trạng tại [assistant.md](assistant.md). Tài liệu này cụ thể hóa hướng mở rộng sau các trao đổi về Code Interpreter và bổ sung cho [thiết kế trước](assistant-system-design.md).
+**Trạng thái: chế độ Hybrid có luồng LangGraph và runner gVisor tùy chọn.** [Hướng dẫn Assistant](assistant.md#hybrid-excel-workflow) mô tả phạm vi đã triển khai và cấu hình. Tài liệu này còn mô tả các yêu cầu mở rộng, gồm quy trình tái sử dụng và kiểm chứng nâng cao.
 
 Các ràng buộc dưới đây là quy ước thiết kế của TallyV, không phải chứng nhận Microsoft, LangGraph hay chứng nhận tuân thủ bệnh viện. Các giới hạn tài nguyên là cấu hình khởi điểm để thử nghiệm, cần đo lại trên hạ tầng được chọn. MVP hiện chỉ dùng dữ liệu giả lập; triển khai với dữ liệu bệnh viện là một phạm vi triển khai riêng được đơn vị phê duyệt.
 
 ## 1. Mục tiêu và định nghĩa hoàn thành
 
 HR cung cấp yêu cầu nghiệp vụ, dữ liệu và mẫu đầu ra nếu cần. Assistant tự khảo sát, lập kế hoạch, viết/chạy chương trình, kiểm tra, sửa trong giới hạn và chuẩn bị kết quả để HR review. Nghiệp vụ phân loại nhân sự và đếm theo năm chỉ là một bài nghiệm thu.
+
+MVP mới nhận dữ liệu nguồn từ workbook `.xlsx`. Prompt mô tả nghiệp vụ và đầu ra mong muốn. HR có thể đính kèm một file mẫu đầu ra để backend điền, trong phạm vi renderer XLSX/DOCX hỗ trợ. Nguồn và mẫu có vai trò riêng. Khi không có mẫu, backend tạo file theo cấu trúc đã chốt trong yêu cầu.
 
 Một yêu cầu có thể chỉ tạo dữ liệu Excel, nhiều báo cáo, một bản đối chiếu hoặc đề nghị làm rõ. Không bắt mọi yêu cầu phải có Word hay phải đi qua một tập thao tác nghiệp vụ cố định.
 
@@ -29,7 +31,8 @@ Ngôn ngữ thống nhất: xem [GLOSSARY.md](../GLOSSARY.md). Trong tài liệu
 | Vai trò/module | Được quyết định | Không tự quyết định |
 | --- | --- | --- |
 | HR | Mục tiêu, phạm vi, quy tắc chưa rõ, phân loại cần xác nhận, chấp nhận kết quả | Bỏ qua kiểm soát cô lập, toàn vẹn file hoặc phân quyền |
-| Agent/LLM | Đề xuất kế hoạch, chọn công cụ được cấp, sinh/sửa chương trình, giải thích dựa trên bằng chứng | Tự cấp quyền, sửa nguồn gốc, duyệt kết quả, tự công nhận mọi kiểm tra đã đạt |
+| Model khảo sát nội bộ | Đề xuất ý nghĩa nghiệp vụ của sheet và cột trên metadata do backend đọc | Sửa tên, kiểu đã quan sát, tự chốt khóa hoặc quy tắc mơ hồ, quyết định nội dung được gửi ra ngoài |
+| Model cloud | Đề xuất kế hoạch hoặc sinh/sửa chương trình từ schema, yêu cầu và mã lỗi đã chuẩn hóa | Đọc file nguồn/mẫu, nhận kết quả thật, chạy chương trình, ghi trạng thái hoặc duyệt kết quả |
 | LangGraph | Điều hướng, checkpoint, chờ HR, chuyển trạng thái theo điều kiện của ứng dụng | Xác nhận đúng nghiệp vụ chỉ vì LLM trả `success` |
 | Sandbox | Chạy chương trình trong quyền và tài nguyên đã cấp, trả quan sát thực thi | Truy cập DB, credentials, dữ liệu ngoài tác vụ hoặc tạo quyền mới |
 | Bộ kiểm tra độc lập | Kiểm tra nguồn/đầu ra, chạy các phép đối chiếu tin cậy, tạo finding | Tự sáng tác chính sách nhân sự chưa được xác nhận |
@@ -70,11 +73,13 @@ HR nhìn thấy bản hiểu yêu cầu ngắn gọn và các câu hỏi cần t
 ```mermaid
 flowchart TD
     A[Nhận yêu cầu và snapshot nguồn] --> B[Khảo sát dữ liệu và mẫu]
-    B --> C[Chốt hợp đồng nghiệp vụ và tiêu chí kiểm tra]
+    B --> S[Model nội bộ mô tả sheet và cột]
+    S --> C[Chốt hợp đồng nghiệp vụ và tiêu chí kiểm tra]
     C --> D{Thiếu quyết định?}
     D -->|Có| Q[Hỏi HR và lưu điểm dừng]
     Q -->|Có câu trả lời hợp lệ| C
-    D -->|Không| E[Lập kế hoạch và chuẩn bị chương trình]
+    D -->|Không| P0[Dựng yêu cầu cloud từ schema chuẩn]
+    P0 --> E[Model cloud sinh hoặc sửa chương trình]
     E --> F[Kiểm tra quyền và môi trường thực thi]
     F -->|Đạt preflight| G[Chạy trong sandbox]
     F -->|Vi phạm policy| X
@@ -82,7 +87,7 @@ flowchart TD
     G -->|Lỗi thực thi, còn ngân sách| R
     H --> I{Kết quả kiểm tra}
     I -->|Lỗi kỹ thuật có thể sửa, còn ngân sách| R[Phân tích quan sát lỗi và sửa]
-    R --> E
+    R --> P0
     I -->|Thiếu quy tắc hoặc tiêu chí| Q
     I -->|Hết ngân sách hoặc không hỗ trợ| X[Dừng và giải thích kết quả chưa hoàn tất]
     I -->|Đạt điều kiện dữ liệu| J[Tạo Excel và báo cáo từ dữ liệu đã kiểm tra]
@@ -103,12 +108,12 @@ Hủy có thể được yêu cầu ở mọi bước chưa kết thúc. Đườ
 | Bước | Nghiệp vụ/thực thi | Bằng chứng lưu | Điều kiện đi tiếp / hành vi khi không đạt |
 | --- | --- | --- | --- |
 | 01 Tiếp nhận | Kiểm tra quyền, định dạng, kích thước; chốt vai trò nguồn/mẫu; tạo snapshot | Request ID, chủ sở hữu, file ID, checksum, thời điểm | Có nguồn hợp lệ và quyền đọc; nếu thiếu file thì yêu cầu bổ sung, không tạo kết quả giả |
-| 02 Khảo sát | Đọc cấu trúc toàn vùng, header, kiểu, null/trùng, giá trị phân bố, hàng ẩn, công thức, mẫu báo cáo | Source profile, phạm vi đã đọc, vùng không hỗ trợ | Không âm thầm cắt dòng; mẫu 5 dòng chỉ là thông tin bổ sung |
+| 02 Khảo sát nội bộ | Parser đọc tên file, sheet, vùng, header, kiểu ô, null/trùng, hàng ẩn, công thức và cấu trúc mẫu. Model nhỏ mô tả vai trò từng sheet và nghĩa từng cột | Source profile nội bộ, mô tả đề xuất, độ chắc chắn và phạm vi đọc | Parser là nguồn tên và vị trí chính xác. Ý nghĩa ảnh hưởng kết quả mà chưa rõ thì chuyển sang bước hỏi HR |
 | 03 Chốt nghiệp vụ | Xác định mục tiêu, đơn vị tính, bộ quy tắc, đầu ra, các quyết định chưa rõ | Business Contract và nguồn của từng quyết định | Hỏi những điểm ảnh hưởng kết quả; không hỏi lại điều đã được xác nhận còn hiệu lực |
 | 04 Chuẩn bị kiểm tra | Chọn các phép kiểm tra độc lập và bằng chứng HR cần cung cấp | Validation Contract, mức bao phủ và finding có thể chặn | Có cách kiểm tra các yêu cầu quan trọng trước khi sinh code; nếu chưa có thì làm rõ hoặc dùng nhánh xác minh thủ công rõ ràng |
-| 05 Lập kế hoạch | Agent xây các bước, phụ thuộc, dữ liệu đọc/ghi, điều kiện trước/sau, cách tạo đầu ra | Plan version, runtime được dùng, tiêu chí từng bước | Kế hoạch nằm trong phạm vi và capability được cấp; thay đổi nghiệp vụ phải hỏi HR |
+| 05 Sinh chương trình | Backend dựng yêu cầu từ schema và hợp đồng đã chuẩn hóa. GPT hoặc Claude trả kế hoạch/code có cấu trúc và schema đầu ra | Phiên bản yêu cầu cloud, plan/code và schema đầu ra | Chỉ gọi qua module kiểm soát nội dung gửi. Nếu không biểu diễn được yêu cầu bằng trường được phép thì hỏi HR hoặc dừng ở chế độ cloud |
 | 06 Chuẩn bị sandbox | Cấp môi trường, mount đúng snapshot, khóa quyền/tài nguyên và công cụ | Sandbox receipt, image/package version, policy version | Kiểm tra cấu hình cô lập thành công; nếu không đạt thì dừng |
-| 07 Sinh/chạy mã | Sinh code có cấu trúc, kiểm tra sơ bộ, thực thi và thu kết quả | Code hash, attempt ID, exit code, thời lượng, file ứng viên, số liệu runtime | Mã chạy thành công mới được đưa sang kiểm tra; thành công thực thi không tự đổi thành sẵn sàng review |
+| 07 Chạy mã | Chạy code phiên bản đã qua preflight trên dữ liệu được cấp, thu bảng kết quả ứng viên theo schema | Code hash, attempt ID, exit code, thời lượng, file ứng viên, số liệu runtime | Mã chạy thành công mới được đưa sang kiểm tra; thành công thực thi không tự đổi thành sẵn sàng review |
 | 08 Kiểm tra dữ liệu | Đọc lại nguồn/ứng viên từ tiến trình riêng; kiểm tra phạm vi, số liệu, toàn vẹn và lineage | Verification report có check ID, phiên bản, expected/actual, bằng chứng | Các finding chặn phải được xử lý; LLM critic không được tự đổi FAIL thành PASS |
 | 09 Sửa có giới hạn | Gửi lỗi có cấu trúc cho agent; sửa code/kế hoạch kỹ thuật và chạy lại | Quan hệ lỗi → bản sửa → kiểm tra lại; ngân sách đã tiêu thụ | Không thay đơn vị đếm/loại dòng/khóa join để làm phép kiểm tra hết lỗi; thay đổi nghĩa phải quay lại HR |
 | 10 Tạo đầu ra | Tạo workbook/báo cáo theo yêu cầu, bind chỉ tiêu về giá trị đã kiểm tra | Binding manifest, bảng thống kê, nguồn từng chỉ tiêu | Không để model tự gõ số liệu mới; số liệu lấy từ artifact/dataset đã được kiểm tra |
@@ -229,9 +234,9 @@ Phân loại xử lý lỗi:
 
 | Loại lỗi | Hành vi |
 | --- | --- |
-| Sai cột, sai kiểu, code exception | Gửi traceback đã rút gọn và schema thực tế cho agent; sửa trong ngân sách |
+| Sai cột, sai kiểu, code exception | Ánh xạ sang mã lỗi đã định nghĩa và ID trường chuẩn. Có thể thêm fixture giả tái hiện lỗi. Traceback và giá trị thật lưu nội bộ |
 | Mất kết nối model/worker | Retry transport có backoff; khôi phục checkpoint/receipt, không gọi lại hành động đã ghi nhận hoàn tất |
-| Đối chiếu số liệu FAIL | Gửi expected/actual và dòng liên quan; sửa code, không sửa expected để hợp thức hóa |
+| Đối chiếu số liệu FAIL | Gửi loại kiểm tra thất bại và tham chiếu trường chuẩn. Expected/actual, dòng liên quan và output thật giữ nội bộ. Chỉ sửa code trong phạm vi contract đã chốt |
 | Chưa biết quy tắc/chuyên môn/đơn vị đếm | `NEEDS_INPUT`; hỏi HR và giữ các dòng chưa rõ |
 | Thiếu khả năng kiểm chứng | Bổ sung tiêu chí hoặc nhánh xác minh thủ công có bằng chứng |
 | Vi phạm policy | Chặn và dừng; không thử một phương án có quyền rộng hơn |
@@ -282,8 +287,8 @@ Các seam bên trong:
 | Module | Interface thiết kế | Kết quả chính |
 | --- | --- | --- |
 | Task | `submit/request_change/apply_review` | Contract, revision, quyền và chuyển trạng thái hợp lệ |
-| Source | `snapshot/profile` | Nguồn bất biến và mô tả phạm vi |
-| Agent | `propose/repair` | Kế hoạch, code hoặc câu hỏi có cấu trúc |
+| Source | `snapshot/profile` | Nguồn bất biến, schema vật lý và mô tả nghiệp vụ đề xuất từ model nội bộ |
+| Sinh code cloud | `propose/repair` | Kế hoạch hoặc code nhận từ hợp đồng gửi đi có kiểu dữ liệu riêng |
 | Execution | `execute/cancel` | Receipt của sandbox và file ứng viên |
 | Verification | `verify` | Findings và mức bao phủ được kiểm tra |
 | Artifact | `prepare/commit` | Bundle bất biến, manifest và quyền tải |
@@ -301,8 +306,11 @@ State giữ tham chiếu artifact, không nhét toàn bộ workbook hoặc đư�
   "state_version": 7,
   "contract_ref": "contract_v2",
   "source_refs": ["source_snapshot_a"],
+  "source_profile_ref": "profile_v1",
+  "cloud_request_ref": "cloud_request_v2",
   "rule_version_ids": ["rule_physician_v2"],
   "plan_ref": "plan_v3",
+  "code_ref": "code_v3",
   "validation_contract_ref": "checks_v2",
   "attempt_refs": ["attempt_01", "attempt_02"],
   "candidate_refs": ["candidate_dataset_02"],
@@ -329,7 +337,7 @@ Quyền ghi field:
 
 Thiết kế đích chọn **một chủ sở hữu điều phối**: LangGraph sở hữu graph/checkpoint; PostgreSQL giữ nghiệp vụ, quyền, audit và sổ receipt; queue giao việc có lease. Không để cả LangGraph và một workflow engine khác cùng sở hữu vòng retry/repair của một Run.
 
-Node graph tổng quát: `inspect_sources`, `resolve_contract`, `prepare_validation`, `plan`, `preflight`, `execute`, `verify_data`, `repair`, `render`, `verify_artifacts`, `commit_bundle`, `await_hr`. Router do ứng dụng kiểm soát. Chọn công cụ và viết chương trình bên trong node vẫn có thể động.
+Node graph tổng quát: `intake`, `inspect_workbooks`, `describe_schema_local`, `resolve_contract`, `prepare_validation`, `build_cloud_request`, `generate_script`, `preflight`, `execute`, `verify_data`, `repair`, `render`, `verify_artifacts`, `commit_bundle`, `await_hr`. Router do ứng dụng kiểm soát. Nhánh sửa quay lại `build_cloud_request` với mã lỗi đã chuẩn hóa. Khi thiếu quyết định nghiệp vụ, graph dừng qua `await_hr` và tiếp tục từ hợp đồng đã cập nhật.
 
 LangGraph phân biệt checkpointer theo thread với store dùng cho dữ liệu dài hạn; namespace phải do backend suy ra từ danh tính có quyền, không lấy trực tiếp từ model. [Persistence](https://docs.langchain.com/oss/python/langgraph/persistence).
 
@@ -363,7 +371,11 @@ HR không bắt buộc đọc lại mọi ô. UI ưu tiên các thay đổi so v
 
 ## 14. Context, memory và quy trình tái sử dụng
 
-Context cho một lượt gọi gồm mục tiêu có hiệu lực, profile nguồn liên quan, quy tắc đã duyệt, bước hiện tại, quan sát lần chạy và finding cần sửa. Không gửi toàn bộ lịch sử, toàn bộ bảng hoặc mọi quy tắc của mọi HR vào mỗi prompt.
+Profile nội bộ và request cloud là hai cấu trúc riêng:
+
+- **Profile nội bộ.** Parser đọc đúng tên file, sheet và cột, cấp ID ổn định theo snapshot và ghi nhận kiểu quan sát được. Model nhỏ đề xuất ý nghĩa, đơn vị và vai trò nghiệp vụ, ví dụ sheet lương kỳ hoặc cột lương thực nhận. Khi header không đủ thông tin, việc xem một mẫu nhỏ chỉ diễn ra nội bộ. Nếu ký hiệu như `LCB` hoặc đơn vị không rõ và ảnh hưởng phép tính, HR xác nhận. Ánh xạ tên/kiểu/đơn vị đã xác nhận có thể được dùng lại trong đúng phạm vi sau khi kiểm tra schema.
+- **Request cloud.** Backend dựng lại từ danh sách trường được phép, gồm ID bảng/cột chuẩn, ý nghĩa và kiểu được phép gửi, đơn vị, quan hệ bảng đã chốt, yêu cầu nghiệp vụ đã chuyển thành tham số, và ID chỉ tiêu đầu ra. Ví dụ `payroll.net_pay_vnd` và `DROP_THRESHOLD` thay cho tiêu đề gốc và giá trị ngưỡng. Backend ánh xạ các ID/giá trị này khi chạy. Template giữ nội bộ, cloud chỉ cần chỉ tiêu cần trả về để backend điền. Mô tả do model nội bộ sinh và prompt gốc không được chuyển tiếp trực tiếp. Khi không dựng được request trong phạm vi cho phép, dừng bước gọi cloud. Lượt sửa dùng cùng interface và chỉ thêm mã lỗi, ID chuẩn hoặc fixture giả.
+- **Luồng ra ngoài.** Module gọi cloud chỉ nhận cấu trúc request riêng, không nhận toàn bộ state hoặc có quyền đọc artifact. Không đưa dòng mẫu, giá trị distinct, tên file/sheet thật, số liệu, stdout, traceback, kết quả kiểm tra hay file đầu ra vào request. Tắt tracing ra SaaS cho luồng nội bộ. Lưu checkpoint và bằng chứng trong kho được duyệt. Xem [đối chiếu JCI và Vinmec](assistant-jci-research.md).
 
 Tách ba loại:
 
@@ -452,6 +464,7 @@ Hành vi phải có:
 | Chưa có cách xác minh nghĩa biến đổi | Nêu scope, cần tiêu chí/bằng chứng thủ công; không giả vờ PASS |
 | Code cố truy cập mạng/host/secrets/file tác vụ khác | Bị cơ chế cô lập chặn; log đã làm sạch; không fallback exec trên host |
 | Cell chứa chỉ dẫn mở quyền hoặc gửi file | Không thay quyền hay tạo side effect |
+| Tên file/sheet, header, mô tả local, prompt, template hoặc lỗi chạy chứa giá trị giả đánh dấu | Giá trị không xuất hiện trong request cloud ở lần sinh, sửa hoặc retry, kể cả tracing ra ngoài |
 | Hết ngân sách sửa | Dừng hữu hạn, bảo toàn nguồn và bằng chứng lỗi |
 | Worker chết hoặc replay node | Không double-commit bundle, không reset ngân sách, không sinh hai quyết định review |
 | Hủy trong lúc model/sandbox chạy | Không có kết quả đến muộn được chốt thành bản hiện hành |
@@ -478,8 +491,8 @@ Thứ tự làm việc đề xuất:
 2. Làm một execution module cô lập trên hạ tầng khả thi, chứng minh các giới hạn/quyền trước khi nối LLM.
 3. Làm bộ kiểm tra và collector/manifest; thử code đúng, code lỗi và code vi phạm do người viết trước.
 4. Tạo graph LangGraph cho một task giả lập; kiểm tra pause/resume, cancellation, retry và atomic bundle commit.
-5. Nối agent sinh/sửa code; đo tỷ lệ đúng, thời gian, khả năng hỏi đúng và tuân thủ budget trên nhiều case.
+5. Nối model nhỏ khảo sát nội bộ và model cloud sinh/sửa code qua request riêng. Đo độ đúng của mô tả schema, kết quả, thời gian và ngân sách. Kiểm tra toàn bộ request đi ra trên workbook, prompt, mẫu và lỗi giả có giá trị đánh dấu.
 6. Bổ sung UI review, đo thời gian HR thực, rồi thêm procedure reuse.
 7. Migration theo capability/feature flag; giữ luồng hiện có cho tới khi luồng mới đạt nghiệm thu. Không bật hai orchestrator cùng điều phối một Run.
 
-Việc viết đặc tả này không thay đổi runtime, database, quyền chạy mã hay cấu hình model hiện tại.
+Luồng Hybrid lưu checkpoint trong trạng thái Run và biên nhận SQL hiện có. Runner gVisor được cấp quyền và cấu hình riêng trước khi bật chế độ.

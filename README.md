@@ -149,12 +149,13 @@ Trong **Quy tắc mô phỏng**, chọn **Điều chỉnh quy tắc** để nh�
 
 ```dotenv
 PROCESSING_MODE=GEMINI
-GEMINI_API_KEY=<khóa của dự án Gemini>
+GEMINI_PROVIDER=openrouter
+OPENROUTER_API_KEY=<khóa OpenRouter dùng chung với Qwen và Jev>
 GEMINI_MODEL=gemini-3.8-flash
 OCR_ENABLED=true
 ```
 
-Đặt các biến trên trong `.env` của backend rồi khởi động lại API và worker. Worker Docker cần đường mạng tới `generativelanguage.googleapis.com:443`; override `compose.outlook.yaml` đã nối worker vào mạng có egress. Bấm **Đánh giá và phân loại** để xếp ca chờ xử lý hoặc chạy lại một ca đã có kết quả.
+Đặt các biến trên trong `.env` của backend rồi khởi động lại API và worker. Worker Docker cần kết nối tới `openrouter.ai:443`; override `compose.outlook.yaml` đã nối worker vào mạng có egress. Với API Google trực tiếp, đặt `GEMINI_PROVIDER=google` và `GEMINI_API_KEY`. Bấm **Đánh giá và phân loại** để xếp ca chờ xử lý hoặc chạy lại một ca đã có kết quả. [Gemini 3.8 Flash trên OpenRouter](https://openrouter.ai/google/gemini-3.8-flash)
 
 Sau khi TallyV quét Outlook và nhập dữ liệu, bước đánh giá lấy mã nhân viên, ngày, ca và lý do từ phiên bản hồ sơ đã lưu. Gemini nhận dữ kiện đã lọc từ hồ sơ và ảnh bằng chứng để trả trạng thái khớp, lệch hoặc chưa xác định cho mã nhân viên, ngày và khung ca. Hai mã nhân viên được chuyển thành mã tạm bằng cùng một khóa ngẫu nhiên cho mỗi lần đánh giá. Các mốc ngày giờ được chuyển thành chỉ số có cùng gốc để giữ thứ tự và khoảng cách. Ảnh, tệp Excel gốc, họ tên, mã nhân viên, OCR thô và thời điểm gốc ở nội bộ. TallyV gắn kết quả vào phiên bản hồ sơ được đánh giá. HR xem và xác nhận trước bước nghiệp vụ tiếp theo. Dùng dữ liệu giả lập khi kiểm tra lần đầu và rà soát điều khoản dữ liệu của dự án Gemini trước khi đưa dữ liệu thật vào.
 
@@ -176,33 +177,34 @@ Cột ca nên có khoảng giờ rõ ràng, ví dụ `08:00–17:00` hoặc `22:
 
 ```dotenv
 OCR_ENABLED=true
-OCR_BACKEND=remote
-OCR_REMOTE_URL=<địa chỉ HTTPS của service PP-OCRv6 Medium>
-OCR_REMOTE_API_TOKEN=<token truy cập service OCR>
-OCR_REMOTE_MODEL=PP-OCRv6_medium
+OCR_BACKEND=vlmrun
+VLMRUN_API_KEY=<khóa VLM Run Gateway>
+VLMRUN_OCR_LANG=vi
 EVIDENCE_VISION_ENABLED=true
-EVIDENCE_VISION_PROVIDER=qwen_cloud
-EVIDENCE_VISION_CLOUD_MODEL=qwen3-vl-8b-instruct
+EVIDENCE_VISION_PROVIDER=openrouter
 EVIDENCE_VISION_MODEL=qwen3-vl:8b-instruct
-DASHSCOPE_API_KEY=<khóa Alibaba Cloud Model Studio vùng Singapore>
-DASHSCOPE_WORKSPACE_ID=<ID workspace Singapore, nếu dùng endpoint workspace>
-EVIDENCE_VISION_CLOUD_TEST_SHA256=<SHA-256 ảnh PNG giả lập đã duyệt>
+OPENROUTER_API_KEY=<khóa OpenRouter>
 ```
 
-Tải ảnh giả lập từ màn hồ sơ TallyV, tính mã bằng `shasum -a 256 ten-anh.png` và thêm mã vào danh sách phân cách bằng dấu phẩy. Cả hai API chỉ nhận các byte ảnh khớp chính xác danh sách. Worker gọi OCR trước, rồi gọi Qwen Cloud cho từng ảnh thử. Sau khi sửa cấu hình, khởi động lại worker và chạy phân tích lại hồ sơ thử. [Qwen VL API](https://www.alibabacloud.com/help/en/model-studio/qwen-vl-compatible-with-openai)
+VLM Run phục vụ `paddleocr/pp-ocrv6`, bản Medium theo danh mục của provider. Tạo khóa ở Settings → API keys trong dashboard, hoặc đặt `VLMRUN_API_KEY=vlmrun` để thử với hạn mức ẩn danh. [Model PP-OCRv6](https://vlm.run/gateway/models/paddleocr-pp-ocrv6), [Xác thực VLM Run](https://docs.vlm.run/gateway/authentication)
 
-Để đưa về nội bộ, chuyển `OCR_BACKEND=http` và trỏ tới cùng service PP-OCRv6 Medium chạy nội bộ. Đặt `EVIDENCE_VISION_PROVIDER=ollama` sau khi đã nạp `qwen3-vl:8b-instruct` vào Ollama. Ghi lại phiên bản weights và cách lượng tử hóa khi so sánh hai môi trường. [Triển khai OCR Medium](docs/ocr-api.md), [Weights Qwen3-VL 8B](https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct)
+Tạo `OPENROUTER_API_KEY` trong tài khoản OpenRouter. TallyV gọi `qwen/qwen3-vl-8b-instruct` qua Parasail và tắt chuyển tuyến sang provider khác. [Tạo khóa OpenRouter](https://openrouter.ai/settings/keys), [Endpoint Qwen3-VL 8B](https://openrouter.ai/api/v1/models/qwen/qwen3-vl-8b-instruct/endpoints)
+
+Khi chạy phân tích hồ sơ, worker đọc ảnh PNG bằng chứng từ kho lưu trữ, gửi ảnh sang VLM Run để đọc chữ rồi sang OpenRouter để mô tả cảnh. Ở cấu hình cloud, hai dịch vụ nhận nguyên ảnh. Sau khi sửa cấu hình, khởi động lại worker và chạy phân tích hồ sơ. Nếu chạy Docker, dùng kèm `compose.outlook.yaml` để worker có kết nối ra ngoài.
+
+Để đưa về nội bộ, chuyển `OCR_BACKEND=http` và trỏ tới service PP-OCRv6 Medium chạy nội bộ. Với service OCR do bạn triển khai trên HTTPS để thử từ xa, dùng `OCR_BACKEND=remote` và các biến `OCR_REMOTE_*`. Đặt `EVIDENCE_VISION_PROVIDER=ollama` sau khi đã nạp `qwen3-vl:8b-instruct` vào Ollama. Ghi lại phiên bản weights và cách lượng tử hóa khi so sánh hai môi trường. [Triển khai OCR Medium](docs/ocr-api.md), [Weights Qwen3-VL 8B](https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct)
 
 ### Kiểm tra đề xuất bằng Jev
 
-Để bật bước kiểm tra sau Gemini, thêm các biến sau rồi khởi động lại API và worker. Worker cần kết nối tới `api.typesafe.ai:443`.
+Để bật bước kiểm tra sau Gemini qua OpenRouter, thêm các biến sau rồi khởi động lại API và worker. Jev dùng chung `OPENROUTER_API_KEY` và gọi endpoint System One với model `typesafe/jev-1.14`. [Jev trên OpenRouter](https://openrouter.ai/docs/guides/community/jev)
 
 ```dotenv
 JEV_ENABLED=true
-JEV_API_KEY=<khóa TypeSafe>
-JEV_MODEL=jev-1.14.0
+JEV_PROVIDER=openrouter
 JEV_THRESHOLD=0.85
 ```
+
+Với API TypeSafe trực tiếp, đặt `JEV_PROVIDER=typesafe` và `JEV_API_KEY`. Biến `JEV_MODEL` áp dụng cho API TypeSafe trực tiếp.
 
 Jev nhận lại dữ kiện đã lọc, một quy tắc HR cho nhãn được đề xuất và phần giải thích Gemini đã lọc riêng. Jev không nhận mã hồ sơ gửi Gemini, ảnh hoặc OCR gốc. Hai câu hỏi Noul đo mức dữ kiện hỗ trợ nhãn và khả năng giải thích vượt quá dữ kiện. Với cấu hình mẫu, cần điểm hỗ trợ từ 0,85 và điểm vượt căn cứ tối đa 0,15. Đây là ngưỡng khởi điểm để kiểm thử với HR.
 

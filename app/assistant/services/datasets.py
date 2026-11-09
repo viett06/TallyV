@@ -4,6 +4,7 @@ import csv
 import hashlib
 import io
 import json
+from datetime import date, datetime, time
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
@@ -30,7 +31,7 @@ def load_snapshot(reference):
     return json.loads(read_bytes(reference["key"], reference["sha256"]))
 
 
-def source_datasets(item, content):
+def source_datasets(item, content, *, describe_types=False):
     name, attachment_id = item["name"], item["id"]
     suffix = Path(name).suffix.lower()
     tables = []
@@ -90,6 +91,21 @@ def source_datasets(item, content):
             "issues": [],
             "checks": [{"kind": "source_rows", "value": len(entries)}],
         }
+        if describe_types:
+            populated = (row for row in rows if any(value not in (None, "") for value in row))
+            next(populated)
+            columns = result[dataset_id]["columns"]
+            observed = [set() for _ in columns]
+            types = {bool: "boolean", int: "integer", float: "number", date: "date", datetime: "datetime", time: "time"}
+            for row in populated:
+                for index, value in enumerate(row[:len(columns)]):
+                    if value not in (None, ""):
+                        observed[index].add(types.get(type(value), "text"))
+            result[dataset_id]["observed_types"] = [
+                "number" if kinds == {"integer", "number"} else
+                next(iter(kinds)) if len(kinds) == 1 else "mixed" if kinds else "blank"
+                for kinds in observed
+            ]
     if not result:
         raise InputError(message("assistant.data.empty"))
     return result
