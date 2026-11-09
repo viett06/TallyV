@@ -105,3 +105,12 @@
   .scan-counts > div { padding: 12px; }
   .mailbox-scan .button-row { flex-direction: column; align-items: flex-start; }
 }
+.rule-description{white-space:pre-wrap;overflow-wrap:anywhere}
+.rule-description-field{display:grid;gap:6px;margin-top:14px;font-weight:600}
+.rule-description-field textarea{min-width:0;resize:vertical;font:inherit;font-weight:400}
+.rule-description-field small{font-weight:400;color:var(--muted)}
+.confirm-modal:has(.rule-description-field){max-height:90vh;overflow:auto}
+.ocr-region-preview{position:relative;margin-top:8px}
+.ocr-region-preview img{display:block;width:100%;height:auto}
+.ocr-region-preview svg{position:absolute;inset:0;width:100%;height:100%}
+.ocr-region-preview rect{fill:#1b866514;stroke:#07845e;stroke-width:1.5px}

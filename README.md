@@ -143,6 +143,71 @@ docker network disconnect tallyv_access tallyv-ollama-1
 
 Sau đó đặt `PROCESSING_MODE=LOCAL_LLM`, `OLLAMA_URL=http://ollama:11434`, `OLLAMA_MODEL=qwen2.5:7b` trong `.env`, chạy `docker compose up -d --force-recreate api worker`. Phân tích lại các trường hợp muốn thử. Đầu vào model chỉ có mã trường hợp, giải trình và kết quả kiểm tra bằng chứng; không truyền họ tên hoặc ảnh gốc. Ollama chỉ nằm trên mạng internal khi xử lý. Schema JSON được Pydantic kiểm tra. Lỗi kết nối/schema được lưu `FAILED`, `UNKNOWN`, yêu cầu kiểm tra; **không fallback ngầm**. Kết quả vẫn phải qua kiểm tra code và HR.
 
+## Đánh giá chấm công qua Gemini
+
+Trong **Quy tắc mô phỏng**, chọn **Điều chỉnh quy tắc** để nhập mô tả và điều kiện áp dụng hoặc loại trừ cho từng nhãn. Chỉ nhập quy tắc chung. Gemini nhận nội dung này và bốn cờ yêu cầu dữ kiện của mỗi nhãn.
+
+```dotenv
+PROCESSING_MODE=GEMINI
+GEMINI_API_KEY=<khóa của dự án Gemini>
+GEMINI_MODEL=gemini-3.8-flash
+OCR_ENABLED=true
+```
+
+Đặt các biến trên trong `.env` của backend rồi khởi động lại API và worker. Worker Docker cần đường mạng tới `generativelanguage.googleapis.com:443`; override `compose.outlook.yaml` đã nối worker vào mạng có egress. Bấm **Đánh giá và phân loại** để xếp ca chờ xử lý hoặc chạy lại một ca đã có kết quả.
+
+Sau khi TallyV quét Outlook và nhập dữ liệu, bước đánh giá lấy mã nhân viên, ngày, ca và lý do từ phiên bản hồ sơ đã lưu. Gemini nhận dữ kiện đã lọc từ hồ sơ và ảnh bằng chứng để trả trạng thái khớp, lệch hoặc chưa xác định cho mã nhân viên, ngày và khung ca. Hai mã nhân viên được chuyển thành mã tạm bằng cùng một khóa ngẫu nhiên cho mỗi lần đánh giá. Các mốc ngày giờ được chuyển thành chỉ số có cùng gốc để giữ thứ tự và khoảng cách. Ảnh, tệp Excel gốc, họ tên, mã nhân viên, OCR thô và thời điểm gốc ở nội bộ. TallyV gắn kết quả vào phiên bản hồ sơ được đánh giá. HR xem và xác nhận trước bước nghiệp vụ tiếp theo. Dùng dữ liệu giả lập khi kiểm tra lần đầu và rà soát điều khoản dữ liệu của dự án Gemini trước khi đưa dữ liệu thật vào.
+
+### Mô tả ảnh bằng model nội bộ
+
+OCR giữ vùng chữ cùng dữ kiện đọc được để HR kiểm tra. Nếu dùng OCR HTTP, rebuild và khởi động lại service OCR để nhận vùng chữ. Model thị giác chạy bổ sung cho ảnh camera và ảnh chưa rõ loại. Màn hồ sơ hiển thị mô tả cùng các quan sát về tư thế, vị trí tại bàn và việc có màn hình trong ảnh. Danh tính và địa điểm vẫn cần căn cứ ngoài mô tả cảnh.
+
+```dotenv
+EVIDENCE_VISION_ENABLED=true
+EVIDENCE_VISION_URL=http://127.0.0.1:11434
+EVIDENCE_VISION_MODEL=qwen3-vl:2b-instruct
+```
+
+Nạp trước model bằng `ollama pull qwen3-vl:2b-instruct` trên Ollama nội bộ, rồi khởi động lại worker. Nếu worker và Ollama cùng chạy trong Compose, dùng `EVIDENCE_VISION_URL=http://ollama:11434`. Chạy Ollama với `OLLAMA_NO_CLOUD=1` và cô lập runtime suy luận khỏi Internet khi xử lý ảnh. Gemini và Jev nhận các quan sát có cấu trúc về cảnh. Mô tả tự do và ảnh gốc được giữ nội bộ.
+
+Cột ca nên có khoảng giờ rõ ràng, ví dụ `08:00–17:00` hoặc `22:00–06:00`. Nếu chỉ có tên ca và TallyV chưa biết lịch tương ứng, đối chiếu khung ca hiển thị **Chưa xác định**.
+
+#### Thử cả OCR và Qwen qua API bên ngoài
+
+```dotenv
+OCR_ENABLED=true
+OCR_BACKEND=remote
+OCR_REMOTE_URL=<địa chỉ HTTPS của service PP-OCRv6 Medium>
+OCR_REMOTE_API_TOKEN=<token truy cập service OCR>
+OCR_REMOTE_MODEL=PP-OCRv6_medium
+EVIDENCE_VISION_ENABLED=true
+EVIDENCE_VISION_PROVIDER=qwen_cloud
+EVIDENCE_VISION_CLOUD_MODEL=qwen3-vl-8b-instruct
+EVIDENCE_VISION_MODEL=qwen3-vl:8b-instruct
+DASHSCOPE_API_KEY=<khóa Alibaba Cloud Model Studio vùng Singapore>
+DASHSCOPE_WORKSPACE_ID=<ID workspace Singapore, nếu dùng endpoint workspace>
+EVIDENCE_VISION_CLOUD_TEST_SHA256=<SHA-256 ảnh PNG giả lập đã duyệt>
+```
+
+Tải ảnh giả lập từ màn hồ sơ TallyV, tính mã bằng `shasum -a 256 ten-anh.png` và thêm mã vào danh sách phân cách bằng dấu phẩy. Cả hai API chỉ nhận các byte ảnh khớp chính xác danh sách. Worker gọi OCR trước, rồi gọi Qwen Cloud cho từng ảnh thử. Sau khi sửa cấu hình, khởi động lại worker và chạy phân tích lại hồ sơ thử. [Qwen VL API](https://www.alibabacloud.com/help/en/model-studio/qwen-vl-compatible-with-openai)
+
+Để đưa về nội bộ, chuyển `OCR_BACKEND=http` và trỏ tới cùng service PP-OCRv6 Medium chạy nội bộ. Đặt `EVIDENCE_VISION_PROVIDER=ollama` sau khi đã nạp `qwen3-vl:8b-instruct` vào Ollama. Ghi lại phiên bản weights và cách lượng tử hóa khi so sánh hai môi trường. [Triển khai OCR Medium](docs/ocr-api.md), [Weights Qwen3-VL 8B](https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct)
+
+### Kiểm tra đề xuất bằng Jev
+
+Để bật bước kiểm tra sau Gemini, thêm các biến sau rồi khởi động lại API và worker. Worker cần kết nối tới `api.typesafe.ai:443`.
+
+```dotenv
+JEV_ENABLED=true
+JEV_API_KEY=<khóa TypeSafe>
+JEV_MODEL=jev-1.14.0
+JEV_THRESHOLD=0.85
+```
+
+Jev nhận lại dữ kiện đã lọc, một quy tắc HR cho nhãn được đề xuất và phần giải thích Gemini đã lọc riêng. Jev không nhận mã hồ sơ gửi Gemini, ảnh hoặc OCR gốc. Hai câu hỏi Noul đo mức dữ kiện hỗ trợ nhãn và khả năng giải thích vượt quá dữ kiện. Với cấu hình mẫu, cần điểm hỗ trợ từ 0,85 và điểm vượt căn cứ tối đa 0,15. Đây là ngưỡng khởi điểm để kiểm thử với HR.
+
+Nếu Jev không xác nhận hoặc phản hồi lỗi, giữ đề xuất Gemini và yêu cầu HR đối chiếu thủ công. Kết quả Gemini cũ chưa qua Jev cần chạy lại để đủ điều kiện duyệt lô khi bật bước này. HR vẫn xác nhận kết quả cuối. [Chính sách lưu giữ dữ liệu của TypeSafe](https://help.typesafe.ai/articles/5974925716)
+
 ## Kiểm thử
 
 ```bash
@@ -209,7 +274,7 @@ Không chạy thêm worker Python cùng lúc. Khi đổi từ named volume Docke
 - Secret lấy từ biến môi trường; log chỉ ID job và loại lỗi. Không log mật khẩu, email, giải trình hay OCR đầy đủ. Tắt access log Uvicorn theo lệnh mặc định.
 - Không mount storage công khai. Ảnh/file đi qua API có quyền HR, đường dẫn UUID được kiểm tra, file tải về dùng attachment. UI render email thành text, không chạy HTML hoặc tự mở URL.
 - Workbook không thực thi macro/công thức, từ chối macro/external workbook links, kiểm tra kích thước nén/giải nén/ảnh. Công thức trong dòng gây lỗi dòng. Excel xuất cưỡng bức kiểu chuỗi cho giá trị không đáng tin.
-- AI/OCR vẫn xử lý cục bộ; không dùng cloud AI/OCR, telemetry exporter, remote font, CDN, gửi email phản hồi hoặc SAP. Trình duyệt gọi API cùng origin và chuyển sang trang Microsoft khi HR đăng nhập. Mailpit/Ollama giới hạn host nội bộ; Outlook chỉ gọi Microsoft identity và Graph.
+- Cấu hình mặc định xử lý AI/OCR cục bộ. Chế độ thử OCR và Qwen từ xa chỉ gửi ảnh trong danh sách SHA-256 đã duyệt. Trình duyệt gọi API cùng origin và chuyển sang trang Microsoft khi HR đăng nhập. Mailpit và Ollama giới hạn host nội bộ.
 - Worker Compose gốc chỉ nối mạng internal. Chế độ Outlook dùng thêm `compose.outlook.yaml` để worker truy cập Microsoft identity/Graph theo quyền HR đã cấp. Cổng API/Mailpit/Postgres vẫn chỉ bind loopback. Chưa cấu hình Entra hoặc chưa cấp quyền thì không đọc được hộp thư thật.
 - Giới hạn: XLSX 15 MB, tối đa 2000 dòng/30 cột, 60 MB giải nén; ảnh PNG/JPEG do Pillow đọc được, 8 MB/16 triệu pixel. Không PDF/OCR tài liệu nhiều trang, không macro, không nhận diện khuôn mặt.
 - Retry không sửa nội dung nguồn sai: HR phải yêu cầu file sửa. Email ngoài phạm vi giữ lại để xem và gửi lại đúng mẫu, chưa có tính năng gán khoa/kỳ thủ công.

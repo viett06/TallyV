@@ -14,10 +14,14 @@ def update_rule(db: Session, category: str, body: RuleUpdateRequest, user: User)
     if not rule:
         raise AppError(404, message("rules.not_found"))
     before = rule.settings
-    rule.settings = {**body.model_dump(), "version": "demo-" + utcnow().strftime("%Y%m%d%H%M%S")}
+    rule.settings = {
+        **before,
+        **body.model_dump(exclude_unset=True),
+        "version": "demo-" + utcnow().strftime("%Y%m%d%H%M%S%f"),
+    }
     for case in case_crud.list_for_update(db):
         analysis = case_crud.get_analysis(db, case.active_version_id)
-        if analysis.category == category:
+        if analysis and (analysis.category == category or analysis.method == "GEMINI"):
             previous = case.hr_status
             case.hr_status, case.confirmed_at, case.confirmed_by = "PENDING_REVIEW", None, None
             analysis.status, analysis.assessment = "NOT_STARTED", "NOT_EVALUATED"

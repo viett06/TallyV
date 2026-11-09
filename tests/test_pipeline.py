@@ -283,14 +283,12 @@ def test_local_llm_payload_excludes_employee_name_and_validates_json(context, mo
 
 
 def test_ocr_normalization_preserves_raw_text_and_detects_conflict(context, monkeypatch):
-    import pytesseract
-
     from app.core.config import settings
 
     sessions, _ = context
     monkeypatch.setattr(settings, "ocr_enabled", True)
     raw = "EMPLOYEE: MPOO1\nDATE: 2026-10-02\nSTATUS: RECORDED\n"
-    monkeypatch.setattr(pytesseract, "image_to_string", lambda *a, **k: raw)
+    monkeypatch.setattr("app.services.analysis.read_text", lambda *a, **k: raw)
     with sessions() as db:
         ingest(db, workbook([row()], {2: [picture("MP001", "2026-10-01")]}))
         version = db.scalar(select(CaseVersion))
@@ -363,13 +361,11 @@ def test_rule_change_invalidates_previous_confirmation(context):
 
 
 def test_watermark_only_ocr_is_not_readable_business_evidence(context, monkeypatch):
-    import pytesseract
-
     from app.core.config import settings
 
     sessions, _ = context
     monkeypatch.setattr(settings, "ocr_enabled", True)
-    monkeypatch.setattr(pytesseract, "image_to_string", lambda *a, **k: message("tests.ocr.watermark_only"))
+    monkeypatch.setattr("app.services.analysis.read_text", lambda *a, **k: message("tests.ocr.watermark_only"))
     with sessions() as db:
         ingest(db, workbook([row()], {2: [picture("MP001", "2026-10-01", unreadable=True)]}))
         analyze(db, db.scalar(select(CaseVersion.id)))

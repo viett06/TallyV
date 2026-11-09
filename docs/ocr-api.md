@@ -173,6 +173,12 @@ TallyV kiểm tra schema JSON trước khi dùng, ghép các dòng bằng xuốn
 
 Các kết quả đã đánh giá không tự chạy lại khi đổi engine. Chọn **Phân tích lại** một trường hợp mô phỏng để thử; thao tác này đưa kết luận HR của trường hợp đó về chờ rà soát như luồng hiện có.
 
+## API HTTPS cho PP-OCRv6 Medium
+
+Dùng cùng image OCR của repo khi triển khai từ xa hoặc khi chuyển về nội bộ. Chuẩn bị hai thư mục model `PP-OCRv6_medium_det` và `PP-OCRv6_medium_rec` dưới thư mục weights. Mỗi thư mục cần `inference.json`, `inference.pdiparams` và `inference.yml`. Ghi lại revision và SHA-256 của weights để hai môi trường dùng cùng bản. [Weights phát hiện chữ](https://huggingface.co/PaddlePaddle/PP-OCRv6_medium_det), [Weights nhận dạng chữ](https://huggingface.co/PaddlePaddle/PP-OCRv6_medium_rec)
+
+Đặt `OCR_SERVICE_MODEL_VARIANT=medium` và `OCR_SERVICE_API_TOKEN` trên máy chạy service, rồi đặt HTTPS phía trước cổng OCR. TallyV gửi token qua header Bearer, gọi `POST /ocr` và yêu cầu phản hồi xác nhận `model=PP-OCRv6_medium`. Khi đổi sang máy nội bộ, giữ nguyên image, weights và cấu hình model. Nếu chạy service local với token, giữ `OCR_BACKEND=remote` và dùng endpoint HTTPS nội bộ. Với service loopback không cần token, dùng `OCR_BACKEND=http`.
+
 ## Giới hạn đã biết
 
 Thực nghiệm trong chat cho thấy weights `PP-OCRv6_small_rec` đã tải thiếu các ký tự Việt `Ữ`, `Ệ`, `Ỏ` và chữ thường tương ứng. API hóa không khắc phục giới hạn này. Tích hợp hiện tại nhằm học/vận hành self-host và kiểm thử luồng, chưa xác nhận chất lượng OCR tiếng Việt hoặc trên ảnh bệnh viện.

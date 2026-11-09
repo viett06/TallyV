@@ -12,8 +12,11 @@ def list_periods(db: Session) -> list[ReviewPeriod]:
     return list(db.scalars(select(ReviewPeriod).order_by(ReviewPeriod.id.desc())))
 
 
-def list_rules(db: Session) -> list[DemoRule]:
-    return list(db.scalars(select(DemoRule)))
+def list_rules(db: Session, *, lock_for_analysis: bool = False) -> list[DemoRule]:
+    query = select(DemoRule).order_by(DemoRule.id)
+    if lock_for_analysis:
+        query = query.with_for_update(read=True).execution_options(populate_existing=True)
+    return list(db.scalars(query))
 
 
 def get_rule(db: Session, category: str, *, for_update: bool = False) -> DemoRule | None:

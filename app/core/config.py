@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=ROOT / ".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=ROOT / ".env", extra="ignore", hide_input_in_errors=True)
     database_url: str
     secret_key: str
     demo_password: str
@@ -31,10 +31,29 @@ class Settings(BaseSettings):
     processing_mode: str = "RULE_BASED"
     ollama_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "qwen2.5:7b"
+    gemini_api_key: SecretStr = SecretStr("")
+    gemini_model: str = Field(default="gemini-3.8-flash", pattern=r"^gemini-[a-z0-9.-]{1,80}$")
+    jev_enabled: bool = False
+    jev_api_key: SecretStr = SecretStr("")
+    jev_model: str = Field(default="jev-1.14.0", pattern=r"^jev-[a-z0-9.-]{1,80}$")
+    jev_threshold: float = Field(default=0.85, gt=0.5, lt=1, allow_inf_nan=False)
     ocr_enabled: bool = False
-    ocr_backend: Literal["tesseract", "http"] = "tesseract"
+    ocr_backend: Literal["tesseract", "http", "remote"] = "tesseract"
     ocr_api_url: str = "http://127.0.0.1:8001"
     ocr_api_timeout: float = Field(default=30, gt=0, le=120, allow_inf_nan=False)
+    ocr_remote_url: str = ""
+    ocr_remote_api_token: SecretStr = SecretStr("")
+    ocr_remote_model: Literal["PP-OCRv6_small", "PP-OCRv6_medium"] = "PP-OCRv6_medium"
+    evidence_vision_enabled: bool = False
+    evidence_vision_provider: Literal["ollama", "qwen_cloud"] = "ollama"
+    evidence_vision_url: str = "http://127.0.0.1:11434"
+    evidence_vision_model: Literal[
+        "qwen3-vl:2b", "qwen3-vl:4b", "qwen3-vl:2b-instruct", "qwen3-vl:4b-instruct", "qwen3-vl:8b-instruct"
+    ] = "qwen3-vl:2b-instruct"
+    evidence_vision_cloud_model: Literal["qwen3-vl-8b-instruct", "qwen3-vl-235b-a22b-instruct"] = "qwen3-vl-8b-instruct"
+    evidence_vision_cloud_test_sha256: str = ""
+    dashscope_api_key: SecretStr = SecretStr("")
+    dashscope_workspace_id: str = Field(default="", pattern=r"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)?$")
     sync_interval: int = 30
     allowed_origins: str = "http://127.0.0.1:8000,http://localhost:8000,http://127.0.0.1:5173,http://localhost:5173"
     cookie_secure: bool = False
@@ -150,11 +169,36 @@ class Settings(BaseSettings):
     @field_validator("processing_mode")
     @classmethod
     def valid_mode(cls, value):
-        if value not in {"RULE_BASED", "LOCAL_LLM"}:
+        if value not in {"RULE_BASED", "LOCAL_LLM", "GEMINI"}:
             raise ValueError("Unknown processing mode")
         return value
 
-    @field_validator("mailpit_url", "ollama_url", "hr_mock_url", "ocr_api_url")
+    @model_validator(mode="after")
+    def gemini_credentials(self):
+        if self.processing_mode == "GEMINI" and not self.gemini_api_key.get_secret_value().strip():
+            raise ValueError("GEMINI_API_KEY is required when PROCESSING_MODE=GEMINI")
+        if self.jev_enabled and (self.processing_mode != "GEMINI" or not self.jev_api_key.get_secret_value().strip()):
+            raise ValueError("JEV_ENABLED requires PROCESSING_MODE=GEMINI and JEV_API_KEY")
+        return self
+
+    @field_validator("ocr_remote_url")
+    @classmethod
+    def remote_ocr_https(cls, value):
+        value = value.strip().rstrip("/")
+        if value:
+            parsed = urlparse(value)
+            if (
+                parsed.scheme != "https"
+                or not parsed.hostname
+                or parsed.username is not None
+                or parsed.password is not None
+                or parsed.query
+                or parsed.fragment
+            ):
+                raise ValueError("OCR_REMOTE_URL must be an HTTPS base URL without embedded credentials")
+        return value
+
+    @field_validator("mailpit_url", "ollama_url", "hr_mock_url", "ocr_api_url", "evidence_vision_url")
     @classmethod
     def internal_url(cls, value):
         parsed = urlparse(value)

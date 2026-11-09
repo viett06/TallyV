@@ -69,6 +69,7 @@ def bootstrap(db: Session) -> dict:
         "departments": [{**record(x), "senders": x.senders} for x in active_departments(db)],
         "periods": periods,
         "mode": settings.processing_mode,
+        "jev_enabled": settings.jev_enabled,
         "ocr_enabled": settings.ocr_enabled,
         "rules": [record(x) for x in catalog_crud.list_rules(db)],
         "synthetic": settings.mail_provider == "mailpit",

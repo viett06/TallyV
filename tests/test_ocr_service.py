@@ -1,16 +1,20 @@
+from hashlib import sha256
 from io import BytesIO
+from json import loads
+from types import SimpleNamespace
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 from sqlalchemy import select
 
 from app.core.config import Settings, settings
 from app.demo.generate import picture, workbook
 from app.models import AnalysisResult, CaseVersion, EvidenceFile
-from app.services.analysis import analyze
+from app.services.analysis import analyze, read_evidence
+from app.services.evidence_vision import Scene
 from ocr_service.app import Line, OcrOutput, ServiceSettings, create_app
 from tests.helpers import ingest, row
 
@@ -27,11 +31,12 @@ class Runtime:
     def __init__(self, config):
         self.paths = []
         self.closed = False
+        self.model = config.model_name if config else "PP-OCRv6_small"
 
     def predict(self, path):
         assert path.is_file()
         self.paths.append(path)
-        return OcrOutput(lines=[Line(text="EMPLOYEE: MP001", score=0.95)])
+        return OcrOutput(model=self.model, lines=[Line(text="EMPLOYEE: MP001", score=0.95)])
 
     def close(self):
         self.closed = True
@@ -58,6 +63,19 @@ def test_service_loads_once_reuses_model_and_removes_request_files():
         assert all(not path.exists() for path in instances[0].paths)
         assert not instances[0].closed
     assert instances[0].closed
+
+
+def test_medium_ocr_service_checks_credentials_before_inference():
+    config = ServiceSettings(model_variant="medium", api_token=SecretStr("test-token"))
+    runtime = Runtime(config)
+    with TestClient(create_app(config, lambda _: runtime)) as client:
+        assert client.get("/health").json()["model"] == "PP-OCRv6_medium"
+        upload = {"file": ("image.png", picture("MP001", "2026-10-01"))}
+        assert client.post("/ocr", files=upload).status_code == 401
+        assert client.post("/ocr", files=upload, headers={"Authorization": "Bearer wrong"}).status_code == 401
+        assert not runtime.paths
+        response = client.post("/ocr", files=upload, headers={"Authorization": "Bearer test-token"})
+        assert response.status_code == 200 and response.json()["model"] == "PP-OCRv6_medium"
 
 
 def test_service_rejects_invalid_images_and_limits_before_inference():
@@ -106,6 +124,68 @@ def configure_http(monkeypatch, handler):
     monkeypatch.setattr("app.services.ocr.httpx.Client", client)
 
 
+@pytest.mark.parametrize(
+    "approved, returned_model", [(False, "PP-OCRv6_medium"), (True, "PP-OCRv6_small"), (True, "PP-OCRv6_medium")]
+)
+def test_approved_images_call_remote_ocr_then_qwen_and_require_exact_ocr_model(monkeypatch, approved, returned_model):
+    image = picture("MP001", "2026-10-01")
+    monkeypatch.setattr("app.services.analysis.read_bytes", lambda _: image)
+    monkeypatch.setattr(settings, "ocr_remote_url", "https://ocr.example.test")
+    monkeypatch.setattr(settings, "ocr_remote_api_token", SecretStr("ocr-test-key"))
+    monkeypatch.setattr(settings, "evidence_vision_enabled", True)
+    monkeypatch.setattr(settings, "evidence_vision_provider", "qwen_cloud")
+    monkeypatch.setattr(settings, "dashscope_api_key", SecretStr("qwen-test-key"))
+    monkeypatch.setattr(settings, "evidence_vision_cloud_test_sha256", sha256(image).hexdigest() if approved else "")
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.host)
+        if request.url.host == "ocr.example.test":
+            assert request.url.path == "/ocr"
+            assert request.headers["Authorization"] == "Bearer ocr-test-key"
+            assert image in request.read()
+            return httpx.Response(
+                200,
+                json={
+                    "model": returned_model,
+                    "lines": [
+                        {"text": "DEVICE ERROR MP001 01/10/2026 08:03", "score": 0.95, "box": [0.1, 0.2, 0.8, 0.3]}
+                    ],
+                },
+            )
+        assert loads(request.content)["model"] == "qwen3-vl-8b-instruct"
+        scene = Scene(
+            kind="DEVICE",
+            person_visible=False,
+            person_at_desk=False,
+            posture=None,
+            screen_visible=True,
+            description="Ảnh chụp màn hình thiết bị.",
+        )
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"finish_reason": "stop", "message": {"content": scene.model_dump_json()}}],
+            },
+        )
+
+    configure_http(monkeypatch, handler)
+    monkeypatch.setattr(settings, "ocr_backend", "remote")
+    evidence = SimpleNamespace(path="private")
+    read_evidence(evidence, {"employee_id": "MP001", "date": "2026-10-01"})
+    if not approved:
+        assert calls == [] and evidence.extracted["vision_status"] == "TEST_IMAGE_REQUIRED"
+        assert evidence.ocr_status == "UNAVAILABLE"
+    else:
+        assert len(calls) == 2 and calls[0] == "ocr.example.test" and calls[1].endswith("aliyuncs.com")
+        assert evidence.extracted["vision_status"] == "COMPLETE"
+        if returned_model == "PP-OCRv6_medium":
+            assert evidence.ocr_status == "READABLE" and evidence.extracted["time"] == "08:03"
+            assert evidence.extracted["ocr_model"] == "PP-OCRv6_medium" and evidence.extracted["ocr_regions"]
+        else:
+            assert evidence.ocr_status == "UNAVAILABLE" and not evidence.ocr_text
+
+
 def test_tallyv_posts_image_and_uses_http_text_for_existing_conflict_checks(context, monkeypatch):
     sessions, _ = context
     image = picture("MP001", "2026-10-01")
@@ -117,7 +197,9 @@ def test_tallyv_posts_image_and_uses_http_text_for_existing_conflict_checks(cont
         body = request.read()
         assert b'name="file"' in body and image in body
         assert b"/Users/" not in body and b"/app/data" not in body
-        return httpx.Response(200, json={"lines": [{"text": text, "score": 0.95} for text in texts]})
+        return httpx.Response(
+            200, json={"lines": [{"text": text, "score": 0.95, "box": [0.1, 0.2, 0.8, 0.3]} for text in texts]}
+        )
 
     configure_http(monkeypatch, handler)
     with sessions() as db:
@@ -129,6 +211,7 @@ def test_tallyv_posts_image_and_uses_http_text_for_existing_conflict_checks(cont
         assert evidence.ocr_status == "READABLE"
         assert evidence.extracted["employee_id"] == "MP001" and "normalization" in evidence.extracted
         assert evidence.extracted["date"] == "2026-10-02"
+        assert evidence.extracted["ocr_regions"][1]["box"] == [0.1, 0.2, 0.8, 0.3]
         assert result.assessment == "CONFLICT"
 
 
@@ -138,7 +221,7 @@ def test_http_failure_clears_stale_evidence_without_tesseract_fallback(context, 
 
     sessions, _ = context
     calls = []
-    monkeypatch.setattr(pytesseract, "image_to_string", lambda *a, **k: calls.append("tesseract"))
+    monkeypatch.setattr(pytesseract, "image_to_data", lambda *a, **k: calls.append("tesseract"))
 
     def handler(request):
         if failure == "timeout":

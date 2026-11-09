@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.errors import AppError
 from app.core.i18n import message
 from app.core.serialization import json_value
@@ -18,6 +19,11 @@ def eligible(db: Session, case, analysis) -> bool:
         analysis
         and analysis.status == "COMPLETED"
         and analysis.assessment == "SUFFICIENT"
+        and (
+            not settings.jev_enabled
+            or analysis.method != "GEMINI"
+            or analysis.extracted.get("jev_verification", {}).get("status") == "PASSED"
+        )
         and analysis.category != "UNKNOWN"
         and case.hr_status == "PENDING_REVIEW"
         and not proposed
