@@ -70,14 +70,17 @@ def template_fields(name, content):
     fields = set()
     try:
         for sheet in book:
-            if sheet.max_row > 1000 or sheet.max_column > 80:
-                raise InputError(message("assistant.data.template_limit"))
-            for row in sheet:
-                for cell in row:
-                    if cell.data_type == "f":
-                        raise InputError(message("assistant.data.template_formulas"))
-                    if isinstance(cell.value, str):
-                        fields.update(m.group(1).strip() for m in documents.SLOT.finditer(cell.value))
+            rows = documents.xlsx_value_rows(
+                sheet,
+                row_limit=1000,
+                column_limit=80,
+                limit_error=message("assistant.data.template_limit"),
+                formula_error=message("assistant.data.template_formulas"),
+            )
+            for row in rows:
+                for value in row:
+                    if isinstance(value, str):
+                        fields.update(m.group(1).strip() for m in documents.SLOT.finditer(value))
     finally:
         book.close()
     return sorted(fields)

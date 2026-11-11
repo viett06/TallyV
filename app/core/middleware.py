@@ -4,6 +4,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 
 from app.assistant.config import settings as assistant_settings
+from app.chatbot.config import DOCUMENT_UPLOAD_PATHS, MAX_PDF_BYTES
 from app.core.config import settings
 from app.core.i18n import message
 
@@ -34,6 +35,10 @@ async def local_security(request: Request, call_next):
             length = request.headers.get("content-length")
             if length and (not length.isdigit() or int(length) > assistant_settings.max_upload_bytes + 65536):
                 return JSONResponse({"detail": "Yêu cầu vượt giới hạn dung lượng."}, status_code=413)
+        if request.method == "POST" and request.url.path in DOCUMENT_UPLOAD_PATHS:
+            length = request.headers.get("content-length")
+            if length and (not length.isdigit() or int(length) > MAX_PDF_BYTES + 65536):
+                return JSONResponse({"detail": "Tệp PDF vượt quá 20 MB."}, status_code=413)
     try:
         response = await call_next(request)
     except Exception as error:

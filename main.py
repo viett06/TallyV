@@ -1,7 +1,7 @@
 """FastAPI composition root; workflows live in app.services."""
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api import router
@@ -21,6 +21,11 @@ def create_app() -> FastAPI:
     application.include_router(router)
     frontend = ROOT / "frontend" / "dist"
     if frontend.is_dir():
+
+        @application.get("/employee")
+        def employee_portal():
+            return FileResponse(frontend / "index.html")
+
         application.mount("/", StaticFiles(directory=frontend, html=True), name="frontend")
     return application
 

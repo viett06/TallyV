@@ -236,6 +236,23 @@ def cell_value(value):
     return str(value).strip()
 
 
+
+def xlsx_value_rows(sheet, *, row_limit, column_limit, limit_error, formula_error):
+    # Some producers omit the used range or write a stale one. Read actual cells from A1.
+    sheet.reset_dimensions()
+    for row_number, cells in enumerate(sheet.iter_rows(min_row=1, min_col=1), start=1):
+        if row_number > row_limit:
+            raise InputError(limit_error)
+        if any(cell.data_type == "f" for cell in cells):
+            raise InputError(formula_error)
+        values = [cell.value for cell in cells]
+        while values and values[-1] in (None, ""):
+            values.pop()
+        if len(values) > column_limit:
+            raise InputError(limit_error)
+        yield values
+
+
 def table_records(rows, name, sheet, max_rows):
     rows = [(index, list(r)) for index, r in enumerate(rows) if any(v not in ("", None) for v in r)]
     if len(rows) < 2:
@@ -275,17 +292,19 @@ def parse_data(name, content, max_rows=200):
         try:
             workbook = load_workbook(io.BytesIO(content), data_only=False, read_only=True, keep_links=False)
             records = []
-            for sheet in workbook:
-                if sheet.max_row > max_rows + 1 or sheet.max_column > 40:
-                    raise InputError("Excel vượt giới hạn 200 dòng / 40 cột trên mỗi sheet.")
-                rows = []
-                for row in sheet.iter_rows():
-                    if any(cell.data_type == "f" for cell in row):
-                        raise InputError("Excel có công thức. Hãy cung cấp bản chỉ chứa giá trị đã xác nhận.")
-                    rows.append([cell.value for cell in row])
-                if any(any(v is not None for v in row) for row in rows):
-                    records.extend(table_records(rows, name, sheet.title, max_rows))
-            workbook.close()
+            try:
+                for sheet in workbook:
+                    rows = list(xlsx_value_rows(
+                        sheet,
+                        row_limit=max_rows + 1,
+                        column_limit=40,
+                        limit_error=f"Excel vượt giới hạn {max_rows} dòng / 40 cột trên mỗi sheet.",
+                        formula_error="Excel có công thức. Hãy cung cấp bản chỉ chứa giá trị đã xác nhận.",
+                    ))
+                    if any(rows):
+                        records.extend(table_records(rows, name, sheet.title, max_rows))
+            finally:
+                workbook.close()
             if len(records) > max_rows:
                 raise InputError("Tổng số bản ghi trong Excel vượt 200.")
             return {"records": records, "text": ""}

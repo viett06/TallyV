@@ -31,7 +31,8 @@ services:
     networks: [internal]
   db:
     restart: unless-stopped
-    image: postgres:16-alpine
+    image: tallyv-postgres-vector:16
+    build: ./infra/postgres
     environment:
       POSTGRES_USER: tallyv
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run scripts/init_env.py first}

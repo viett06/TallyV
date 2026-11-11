@@ -1,13 +1,11 @@
-from typing import Literal
-
 from pydantic import BaseModel, ConfigDict, Field
 
-Category = Literal["FORGOT_CHECK", "DEVICE_ERROR", "LEAVE_NOT_RECORDED", "UNKNOWN"]
+from app.schema.rules import RuleCategory
 
 
 class Suggestion(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    category: Category
+    category: RuleCategory
     reason: str = Field(min_length=1, max_length=600)
     extracted: dict[str, str] = Field(default_factory=dict)
     missing: list[str] = Field(default_factory=list, max_length=20)

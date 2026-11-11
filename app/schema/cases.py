@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.core.config import settings
 from app.schema.common import IsoDateTime, View
 from app.schema.hr import HrSubmissionView
+from app.schema.rules import RuleCategory
 
 CycleFilter = date | Literal["", "unassigned"]
 
@@ -29,7 +30,7 @@ class CaseFilters(BaseModel):
 
 
 class CaseReviewRequest(BaseModel):
-    category: Literal["FORGOT_CHECK", "DEVICE_ERROR", "LEAVE_NOT_RECORDED", "UNKNOWN"]
+    category: RuleCategory
     status: Literal["PENDING_REVIEW", "NEEDS_INFO", "CONFIRMED"]
     note: str = Field(default="", max_length=2000)
     acknowledge_exception: bool = False

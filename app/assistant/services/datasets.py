@@ -43,14 +43,14 @@ def source_datasets(item, content, *, describe_types=False):
                 if len(book.sheetnames) > 30:
                     raise InputError(message("assistant.data.sheet_limit"))
                 for sheet in book:
-                    if sheet.max_row > settings.max_data_rows + 1 or sheet.max_column > 40:
-                        raise InputError(message("assistant.data.row_limit", limit=settings.max_data_rows))
-                    rows = []
-                    for row in sheet.iter_rows():
-                        if any(cell.data_type == "f" for cell in row):
-                            raise InputError(message("assistant.data.formulas"))
-                        rows.append([cell.value for cell in row])
-                    if any(any(value not in (None, "") for value in row) for row in rows):
+                    rows = list(documents.xlsx_value_rows(
+                        sheet,
+                        row_limit=settings.max_data_rows + 1,
+                        column_limit=40,
+                        limit_error=message("assistant.data.row_limit", limit=settings.max_data_rows),
+                        formula_error=message("assistant.data.formulas"),
+                    ))
+                    if any(rows):
                         tables.append((sheet.title, rows))
             finally:
                 book.close()

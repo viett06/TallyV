@@ -12,6 +12,24 @@ Assistant mặc định dùng AI local tại `http://127.0.0.1:11435`, model `ll
 
 Chi tiết: [module Assistant](docs/assistant.md). Dữ liệu hội thoại của ứng dụng DraftV độc lập không được tự chuyển sang database TallyV.
 
+## Chatbot tra cứu quy định
+
+Mở mục **Chatbot** tại `/?app=chatbot` sau khi đăng nhập bằng tài khoản HR. Mỗi PDF được lưu cùng nội dung từng trang, số trang PDF tính từ 1 và các đoạn có vector. Trang có lớp chữ dùng văn bản nhúng. Trang thiếu chữ được gửi dưới dạng ảnh đến OpenRouter để OCR. Giới hạn mỗi tệp là 20 MB và 100 trang.
+
+Cài lại `requirements.txt`, build database PostgreSQL có pgvector bằng `docker compose up -d --build db`, rồi chạy `alembic upgrade head` và build lại frontend khi chạy API local. Khi dùng database bên ngoài, máy chủ PostgreSQL cần cài pgvector và tài khoản migration cần quyền bật extension.
+
+Kho văn bản dùng `OPENROUTER_API_KEY` của TallyV. Model OCR mặc định là `google/gemini-2.5-flash` và có thể đặt qua `POLICY_OCR_MODEL`. Các đoạn văn bản được gửi đến OpenRouter để tạo vector 1.024 chiều bằng `baai/bge-m3`.
+
+```bash
+python -m app.chatbot.import_pdfs data/policy-pdfs/*.pdf
+```
+
+Có thể thêm `--force-ocr` khi nhập tệp mới để đọc toàn bộ các trang bằng OCR. Nội dung trùng được nhận diện theo SHA-256. Tệp gốc có thể mở tại `/api/chatbot/documents/{id}/pdf#page={page_number}` trong phiên đăng nhập HR.
+
+Mã module nằm trong `app/chatbot/` và `frontend/src/chatbot/`. Cổng riêng cho cán bộ nhân viên nằm tại `/employee`. Xem [cách tạo tài khoản và kiến trúc tra cứu](docs/chatbot-retrieval.md).
+
+Mỗi trang là tầng cha. Đoạn con chia theo điều/mục nhận diện được và giới hạn độ dài trong trang. Đoạn tiếp tục ở trang sau mang số trang riêng. Chỉ lưu tên điều hoặc mục khi tiêu đề có trên trang nguồn. Kho nhỏ dùng khoảng cách cosine chính xác trên pgvector. Đo thời gian và tỷ lệ tìm lại kết quả trước khi thêm HNSW hoặc IVFFlat.
+
 ## Phạm vi tích hợp SAP
 
 Hiện tại TallyV chỉ **tổng hợp, đánh giá và phân loại** để HR dùng kết quả và nhập nghiệp vụ lên SAP. Mục tiêu sau này là tích hợp **TallyV thành module/ứng dụng mở rộng trong SAP**, rồi **tự động hóa phần nhập SAP sau khi HR kiểm tra và xác nhận**. Mỗi kiểu case sai công số có thể cần cách nhập, trường dữ liệu và thao tác SAP khác nhau; cần mô tả và ánh xạ đúng từng trường hợp. Không quy bài toán này thành sửa giờ vào/ra bằng một API chung. Việc dựng một cổng giả lập hay gửi sửa giờ sang dịch vụ HR riêng không được coi là đã đạt mục tiêu tích hợp.
@@ -145,7 +163,7 @@ Sau đó đặt `PROCESSING_MODE=LOCAL_LLM`, `OLLAMA_URL=http://ollama:11434`, `
 
 ## Đánh giá chấm công qua Gemini
 
-Trong **Quy tắc mô phỏng**, chọn **Điều chỉnh quy tắc** để nhập mô tả và điều kiện áp dụng hoặc loại trừ cho từng nhãn. Chỉ nhập quy tắc chung. Gemini nhận nội dung này và bốn cờ yêu cầu dữ kiện của mỗi nhãn.
+Trong **Quy tắc mô phỏng**, HR có thể chọn **Thêm loại quy tắc**, nhập tên loại trường hợp, mô tả cách phân loại, từ khóa trong giải trình và các yêu cầu về dữ kiện. Chọn **Điều chỉnh quy tắc** để cập nhật loại đã có. Loại mới xuất hiện trong bộ lọc hồ sơ và phần xác nhận của HR. Chế độ dùng quy tắc nhận diện theo từ khóa. Gemini nhận mô tả, cờ yêu cầu dữ kiện và mã loại khớp từ khóa trong giải trình. Chỉ nhập quy tắc chung và bỏ thông tin cá nhân. Để áp dụng danh mục mới cho hồ sơ đã đánh giá, chạy lại **Đánh giá và phân loại**.
 
 ```dotenv
 PROCESSING_MODE=GEMINI

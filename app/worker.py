@@ -18,6 +18,7 @@ from app.crud.jobs import enqueue
 from app.db.session import SessionLocal
 from app.services import mailbox
 from app.services.analysis import analyze
+from app.services.evidence_history import index_confirmed_version
 from app.services.hr import process_submission
 from app.services.imports import process_email
 
@@ -76,6 +77,8 @@ def run_one(sessions=None):
                 process_email(db, job.payload["email_id"])
             elif job.kind == "ANALYZE":
                 analyze(db, job.payload["version_id"])
+            elif job.kind == "INDEX_EVIDENCE":
+                index_confirmed_version(db, job.payload["version_id"])
             elif job.kind == "HR_SUBMIT":
                 process_submission(db, job.payload["submission_id"])
             else:

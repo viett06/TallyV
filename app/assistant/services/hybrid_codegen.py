@@ -1,4 +1,4 @@
-"""OpenRouter receives a fixed vocabulary and a plan shape, never the runtime inputs."""
+"""Structured OpenRouter calls for sheet profiles and script generation."""
 
 import json
 from typing import Literal
@@ -144,15 +144,15 @@ implement the operations. Do not change the plan or return guessed or hardcoded 
 """
 
 
-def generate(request: CodeRequest) -> str:
+def _structured_call(schema, instruction, data, *, name, output_schema, max_tokens, error_detail):
     key = app_settings.openrouter_api_key.get_secret_value()
     if not key:
         raise AppError(503, "Luồng Assistant cần cấu hình OPENROUTER_API_KEY.")
     body = {
         "model": settings.openrouter_model,
         "messages": [
-            {"role": "system", "content": INSTRUCTION},
-            {"role": "user", "content": json.dumps(request.payload(), ensure_ascii=True)},
+            {"role": "system", "content": instruction},
+            {"role": "user", "content": json.dumps(data, ensure_ascii=True)},
         ],
         "provider": {
             "only": ["azure"],
@@ -163,18 +163,9 @@ def generate(request: CodeRequest) -> str:
         },
         "response_format": {
             "type": "json_schema",
-            "json_schema": {
-                "name": "assistant_script",
-                "strict": True,
-                "schema": {
-                    "type": "object",
-                    "properties": {"code": {"type": "string"}},
-                    "required": ["code"],
-                    "additionalProperties": False,
-                },
-            },
+            "json_schema": {"name": name, "strict": True, "schema": output_schema},
         },
-        "max_completion_tokens": 6000,
+        "max_completion_tokens": max_tokens,
     }
     try:
         with httpx.Client(timeout=settings.model_timeout, trust_env=False, follow_redirects=False) as client:
@@ -186,7 +177,37 @@ def generate(request: CodeRequest) -> str:
             response.raise_for_status()
             choice = response.json()["choices"][0]
         if choice.get("finish_reason") != "stop":
-            raise ValueError("Incomplete code response")
-        return Script.model_validate_json(choice["message"]["content"]).code
+            raise ValueError("Incomplete structured response")
+        return schema.model_validate_json(choice["message"]["content"])
     except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError, ValidationError) as error:
-        raise AppError(503, "OpenRouter không trả được script hợp lệ theo cấu hình GPT và quyền riêng tư.") from error
+        raise AppError(503, error_detail) from error
+
+
+def describe_sheet(instruction: str, columns: list[dict]) -> SheetDescription:
+    return _structured_call(
+        SheetDescription,
+        instruction,
+        {"columns": columns},
+        name="assistant_sheet_profile",
+        output_schema=SheetDescription.model_json_schema(),
+        max_tokens=6000,
+        error_detail="OpenRouter chưa trả được mô tả sheet và cột hợp lệ. Hãy thử xử lý lại.",
+    )
+
+
+def generate(request: CodeRequest) -> str:
+    result = _structured_call(
+        Script,
+        INSTRUCTION,
+        request.payload(),
+        name="assistant_script",
+        output_schema={
+            "type": "object",
+            "properties": {"code": {"type": "string"}},
+            "required": ["code"],
+            "additionalProperties": False,
+        },
+        max_tokens=6000,
+        error_detail="OpenRouter không trả được script hợp lệ theo cấu hình GPT và quyền riêng tư.",
+    )
+    return result.code

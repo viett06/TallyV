@@ -8,10 +8,10 @@ The proposed next iteration using LangGraph, a self-hosted coding agent and isol
 
 ## Run and try
 
-1. Install dependencies: `.venv/bin/python -m pip install -r requirements.txt`.
-2. Apply additive migrations: `.venv/bin/python -m alembic upgrade head`.
+1. Install dependencies: `venv/bin/python -m pip install -r requirements.txt`.
+2. Apply additive migrations: `venv/bin/python -m alembic upgrade head`.
 3. Build the UI: `npm --prefix frontend run build`.
-4. Start the configured local Ollama model, then restart the API and TallyV worker. The worker entry point is `.venv/bin/python -m app.worker`; do not run a separate DraftV worker.
+4. Start the configured local Ollama model, then restart the API and TallyV worker. The worker entry point is `venv/bin/python -m app.worker`; do not run a separate DraftV worker.
 5. Open `/?app=assistant`, choose the data-analysis sample, and send its prompt. The sample contains eight synthetic rows, including a deliberate duplicate and an ambiguous management role.
 6. Review classification suggestions, confirm the ambiguous role, and continue. Open the generated workbook and Word report, trace grouped rows to their source files, then mark the current output bundle reviewed.
 
@@ -58,13 +58,16 @@ Data limits are configured by `ASSISTANT_MAX_DATA_ROWS` (10000), `ASSISTANT_MAX_
 
 ## Hybrid Excel workflow
 
-Set `ASSISTANT_PROCESSING_MODE=HYBRID` for new Assistant data tasks. HR attaches one or more values-only XLSX sources and optionally one XLSX or DOCX report template. LangGraph routes work in the existing worker, which stores the next node and receipts in the existing database. Qwen3.5 4B describes one sheet per call. TallyV resolves the request with local tools and computes reference outputs. OpenRouter receives only generated identifiers, fixed column meanings and types, operation names, and fixed repair codes. The original prompt, values, spreadsheet and template names, local model descriptions and diagnostics stay internal. GPT returns Python. The runner sees the authorized tables and actual parameters, and the worker publishes only after exact comparison with the local reference. The script gets at most three attempts. Requests that cannot be expressed or checked with the current typed operations require clarification. OpenRouter uses GPT-5.4 Mini via Azure endpoints eligible for zero data retention.
+Set `ASSISTANT_PROCESSING_MODE=HYBRID` for new Assistant data tasks. HR attaches one or more values-only XLSX sources and optionally one XLSX or DOCX report template. LangGraph routes work in the existing worker, which stores the next node and receipts in the existing database. By default Qwen3.5 4B describes one sheet per call. TallyV resolves the request with local tools and computes reference outputs. For script generation, OpenRouter receives generated identifiers, fixed column meanings and types, operation names, and fixed repair codes. The original prompt, values, spreadsheet and template names, local model descriptions and diagnostics stay internal. GPT returns Python. The runner sees the authorized tables and actual parameters, and the worker publishes only after exact comparison with the local reference. The script gets at most three attempts. Requests that cannot be expressed or checked with the current typed operations require clarification. OpenRouter uses GPT-5.4 Mini via Azure endpoints eligible for zero data retention.
 
 1. For Docker, [prepare the pinned Qwen weights and start Ollama](../llm-service/README.md). The Compose override connects the API and worker to `http://ollama:11434`. If using an existing native Ollama instead, preload `qwen3.5:4b-q4_K_M` on the endpoint the worker calls.
 2. On an internal Linux execution host, configure [Docker with gVisor runsc](https://gvisor.dev/docs/user_guide/quick_start/docker/) and provision the approved `python:3.11-slim` image. The runner uses `--pull=never`. For a pinned local image, set `ASSISTANT_SANDBOX_IMAGE` on the runner host. Start the runner there with `python -m uvicorn scripts.assistant_sandbox:app --host 127.0.0.1 --port 8100 --no-access-log`. Give that process a separate `ASSISTANT_SANDBOX_TOKEN` of at least 32 characters. For a remote worker, expose the runner through internal TLS and restrict access to the worker. The worker uses HTTPS except for loopback development. The worker and sandbox containers do not need a Docker socket mount.
 3. In the API and worker environment, set `ASSISTANT_SANDBOX_URL`, the matching `ASSISTANT_SANDBOX_TOKEN`, `OPENROUTER_API_KEY`, and `ASSISTANT_PROCESSING_MODE=HYBRID`. The default `ASSISTANT_OPENROUTER_MODEL` is `openai/gpt-5.4-mini`. Install the updated dependencies, then restart the API and worker. Try a synthetic Excel task before enabling real sources.
 
 For local development with Docker Desktop and Lima, add `compose.assistant-sandbox.local.yaml` to your Compose stack. It uses Lima's loopback port forwarding and reaches the runner at `https://host.docker.internal:8100`. Serve TLS on the runner with a certificate valid for `host.docker.internal`. Put the public CA certificate in `.env.sandbox-ca.pem` and the runner's matching `ASSISTANT_SANDBOX_TOKEN` in `.env.sandbox`. The worker mounts the public CA for HTTPS, and the API uses the URL and token configuration to report whether script execution is configured. For other deployments using an internal CA, point `ASSISTANT_SANDBOX_CA_FILE` at the CA bundle accessible to the worker.
+
+
+For temporary cloud profiling, set `ASSISTANT_HYBRID_SHEET_PROVIDER=openrouter` and recreate the worker. This routes only sheet and column descriptions through the existing `ASSISTANT_OPENROUTER_MODEL` with Azure and zero-data-retention routing. The profiling request contains column indices, header text, and observed types. It omits file and sheet names, row values, and the user request. Set the provider back to `ollama` to restore local profiling.
 
 With the Outlook overlay already in use, start Ollama and recreate the API and worker with the full set of overlays after setting `ASSISTANT_PROCESSING_MODE=HYBRID` in `.env`:
 
@@ -83,8 +86,8 @@ Before hospital deployment, organizational access rules, retention, model hostin
 
 ## Verification
 
-- `.venv/bin/python -m pytest -q`: application, ownership, queue, migration, tool arithmetic, classification corrections, report binding, retries and cancellation tests.
+- `venv/bin/python -m pytest -q`: application, ownership, queue, migration, tool arithmetic, classification corrections, report binding, retries and cancellation tests.
 - On the Linux runner with gVisor and the local Python image, run `ASSISTANT_RUN_SANDBOX_TEST=1 python -m pytest -q tests/test_assistant_hybrid.py -k real_sandbox` to check that a script can process a fixture but cannot reach the network or read runner credentials.
 - `npm --prefix frontend run build`: TypeScript and production bundle.
-- `.venv/bin/python -m alembic check`: schema/metadata consistency against the configured database.
-- `.venv/bin/python -m scripts.verify_assistant_data`: real local-model end-to-end smoke with synthetic files, isolated SQLite and temporary storage. No application database or hospital data is used. Add `--plain-report` to include metric selection for a plain Word blank; add `--verbose` only to inspect these synthetic model outputs.
+- `venv/bin/python -m alembic check`: schema/metadata consistency against the configured database.
+- `venv/bin/python -m scripts.verify_assistant_data`: real local-model end-to-end smoke with synthetic files, isolated SQLite and temporary storage. No application database or hospital data is used. Add `--plain-report` to include metric selection for a plain Word blank; add `--verbose` only to inspect these synthetic model outputs.

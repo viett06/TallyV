@@ -48,6 +48,8 @@ class Settings(BaseSettings):
     ocr_remote_model: Literal["PP-OCRv6_small", "PP-OCRv6_medium"] = "PP-OCRv6_medium"
     vlmrun_api_key: SecretStr = SecretStr("")
     vlmrun_ocr_lang: str = Field(default="vi", pattern=r"^[a-z_]{2,20}$")
+    evidence_history_enabled: bool = False
+    evidence_history_model_path: Path | None = None
     evidence_vision_enabled: bool = False
     evidence_vision_provider: Literal["ollama", "qwen_cloud", "openrouter"] = "ollama"
     evidence_vision_url: str = "http://127.0.0.1:11434"

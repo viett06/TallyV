@@ -13,6 +13,7 @@ class AssistantSettings(BaseSettings):
     ollama_url: str = "http://127.0.0.1:11435"
     ollama_model: str = "llama3.2:latest"
     hybrid_ollama_model: str = "qwen3.5:4b-q4_K_M"
+    hybrid_sheet_provider: Literal["ollama", "openrouter"] = "ollama"
     openrouter_model: str = Field(default="openai/gpt-5.4-mini", pattern=r"^openai/gpt-[a-zA-Z0-9.-]+$")
     sandbox_url: str = ""
     sandbox_token: SecretStr = SecretStr("")

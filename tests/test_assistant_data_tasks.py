@@ -1,4 +1,5 @@
 import io
+import re
 import uuid
 import zipfile
 
@@ -10,7 +11,7 @@ from sqlalchemy import select
 from app.assistant.errors import AppError, InputError
 from app.assistant.models import GenerationRun, TaskStep
 from app.assistant.schema.tasks import DataPlan, DataStep, MetricBinding
-from app.assistant.services import datasets, orchestration, task_documents, task_planner, tasks, tools
+from app.assistant.services import datasets, documents, orchestration, task_documents, task_planner, tasks, tools
 from app.models import ProcessingJob, User
 from app.services.security import hash_password
 from app.worker import run_one
@@ -32,6 +33,36 @@ def sample_book():
     stream = io.BytesIO()
     book.save(stream)
     return stream.getvalue()
+
+
+
+def workbook_with_dimensions(dimension):
+    book = Workbook()
+    sheet = book.active
+    sheet.append(["ID", "Trình độ"])
+    sheet.append(["001", "Bác sĩ"])
+    sheet["A4"], sheet["B4"] = "002", "Chuyên khoa I"
+    stream = io.BytesIO()
+    book.save(stream)
+    output = io.BytesIO()
+    with zipfile.ZipFile(stream) as source, zipfile.ZipFile(output, "w") as target:
+        for name in source.namelist():
+            content = source.read(name)
+            if name == "xl/worksheets/sheet1.xml":
+                replacement = b"" if dimension is None else f'<dimension ref="{dimension}"/>'.encode()
+                content = re.sub(rb"<dimension ref=[^>]+/>", replacement, content)
+            target.writestr(name, content)
+    return output.getvalue()
+
+
+@pytest.mark.parametrize("dimension", [None, "A1:A1", "A1:XFD1048576"])
+def test_xlsx_readers_use_actual_rows_when_dimensions_are_missing_or_stale(dimension):
+    content = workbook_with_dimensions(dimension)
+    item = {"id": "staff", "name": "Staff.xlsx", "sha256": "fixture"}
+    [dataset] = datasets.source_datasets(item, content, describe_types=True).values()
+    assert [row["values"]["Trình độ"] for row in dataset["rows"]] == ["Bác sĩ", "Chuyên khoa I"]
+    assert [row["lineage"][0]["row"] for row in dataset["rows"]] == [2, 4]
+    assert [record["source"]["row"] for record in documents.parse_data(item["name"], content)["records"]] == [2, 4]
 
 
 def sample_template():

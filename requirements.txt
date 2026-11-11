@@ -6,6 +6,8 @@ psycopg[binary]>=3.2,<4.0
 pydantic-settings>=2.6,<3.0
 openpyxl>=3.1,<4.0
 Pillow>=11.0,<13.0
+numpy>=1.26,<3
+opencv-python-headless>=4.10,<5
 httpx>=0.28,<1.0
 itsdangerous>=2.2,<3.0
 pytesseract>=0.3.13,<1.0
@@ -17,6 +19,8 @@ requests>=2.32,<3.0
 boto3>=1.40,<2.0
 python-docx>=1.1,<2.0
 pypdf>=5.0,<7.0
+pypdfium2>=5.0,<6.0
+pgvector>=0.3,<1.0
 lxml>=5.0,<7.0
 agent-framework-core==1.24.0
 langgraph>=1,<2

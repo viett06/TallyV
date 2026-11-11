@@ -111,6 +111,7 @@
   "rules.not_found": "Không có quy tắc",
   "audit.rule_changed": "Quy tắc demo thay đổi; phân tích và xác nhận lại",
   "audit.rule_updated": "Thay đổi quy tắc mô phỏng cho ",
+  "audit.rule_created": "Thêm quy tắc mô phỏng {category}",
   "cases.not_found": "Không tìm thấy trường hợp",
   "cases.manual_source": "Nhập thủ công",
   "cases.invalid_work_date": "Ngày xảy ra không thuộc kỳ lương hợp lệ.",

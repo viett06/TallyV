@@ -10,6 +10,7 @@ from app.models.departments import Department, DepartmentSender
 from app.models.emails import Email
 from app.models.employees import Employee
 from app.models.evidence_files import EvidenceFile
+from app.models.evidence_references import EvidenceReference, EvidenceViewpoint
 from app.models.hr_submissions import HrSubmission
 from app.models.import_batches import ImportBatch
 from app.models.mock_hr import MockHrAttendance, MockHrReceipt
@@ -30,6 +31,8 @@ __all__ = [
     "AttendanceCase",
     "CaseVersion",
     "EvidenceFile",
+    "EvidenceReference",
+    "EvidenceViewpoint",
     "AnalysisResult",
     "AuditLog",
     "ProcessingJob",

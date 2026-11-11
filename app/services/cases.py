@@ -25,6 +25,7 @@ from app.schema.cases import (
     ManualCaseRequest,
     VersionDecisionRequest,
 )
+from app.services.evidence_history import enqueue_confirmed
 from app.services.excel import MAX_IMAGE_BYTES, normalize_evidence_image
 from app.services.review_calendar import parse_cycle, payroll_period, period_bounds
 from app.services.storage import store_bytes
@@ -190,6 +191,8 @@ def review(db: Session, case_id: int, body: CaseReviewRequest, user: User) -> di
     case = case_crud.get_for_update(db, case_id)
     if not case:
         raise AppError(404, message("cases.not_found"))
+    if not catalog_crud.get_rule(db, body.category):
+        raise AppError(422, message("rules.not_found"))
     result = case_crud.get_analysis(db, case.active_version_id)
     proposed = case_crud.proposed_count(db, case.id)
     if body.status == "NEEDS_INFO" and not body.note.strip():
@@ -220,6 +223,8 @@ def review(db: Session, case_id: int, body: CaseReviewRequest, user: User) -> di
             reason=body.override_reason.strip() or body.note.strip(),
         )
     )
+    if body.status == "CONFIRMED":
+        enqueue_confirmed(db, case.active_version_id)
     db.commit()
     return {"ok": True}
 
@@ -253,6 +258,7 @@ def bulk(db: Session, body: BulkConfirmRequest, user: User) -> dict:
                 reason=message("audit.bulk_confirmed"),
             )
         )
+        enqueue_confirmed(db, case.active_version_id)
     db.commit()
     return {"confirmed": len(cases)}
 

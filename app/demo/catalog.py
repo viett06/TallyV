@@ -1,5 +1,6 @@
 from sqlalchemy import text
 
+from app.core.attendance import DEFAULT_RULE_DESCRIPTIONS
 from app.core.config import settings
 from app.core.i18n import message
 from app.crud import catalog as catalog_crud
@@ -43,7 +44,7 @@ def seed(db):
         code = f"MP{idx:03}"
         if not catalog_crud.get_employee(db, code):
             db.add(Employee(id=code, name=message("demo.employee_name", value0=idx), department_id=(idx - 1) // 8 + 1))
-    for cat in ("FORGOT_CHECK", "DEVICE_ERROR", "LEAVE_NOT_RECORDED", "UNKNOWN"):
+    for cat in DEFAULT_RULE_DESCRIPTIONS:
         if not catalog_crud.get_rule(db, cat):
             db.add(
                 DemoRule(

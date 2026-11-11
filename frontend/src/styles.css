@@ -106,8 +106,12 @@
   .mailbox-scan .button-row { flex-direction: column; align-items: flex-start; }
 }
 .rule-description{white-space:pre-wrap;overflow-wrap:anywhere}
+.rules-panel .panel-heading{flex-wrap:wrap}
+.category{white-space:normal;overflow-wrap:anywhere}
+.category>span{flex:none}
 .rule-description-field{display:grid;gap:6px;margin-top:14px;font-weight:600}
-.rule-description-field textarea{min-width:0;resize:vertical;font:inherit;font-weight:400}
+.rule-description-field :is(input,textarea){min-width:0;font:inherit;font-weight:400}
+.rule-description-field textarea{resize:vertical}
 .rule-description-field small{font-weight:400;color:var(--muted)}
 .confirm-modal:has(.rule-description-field){max-height:90vh;overflow:auto}
 .ocr-region-preview{position:relative;margin-top:8px}

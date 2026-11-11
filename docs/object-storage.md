@@ -22,7 +22,7 @@ python3 scripts/init_env.py
 # Nếu .env đã tồn tại, tạo cấu hình MinIO mà vẫn giữ secrets hiện có:
 python3 -m scripts.configure_storage
 # Cài dependency cho API chạy native:
-.venv/bin/python -m pip install -r requirements.txt
+venv/bin/python -m pip install -r requirements.txt
 # Build MinIO và chạy công việc tạo bucket/account một lần:
 docker compose up -d --build minio minio-init
 ```
@@ -43,9 +43,9 @@ Dừng worker và API native đang ghi dữ liệu trước khi chuyển. Công 
 ```bash
 docker compose stop worker
 # Chỉ kiểm tra file nguồn, hash và các object đã có; chưa upload:
-.venv/bin/python -m scripts.migrate_storage --source ./data
+venv/bin/python -m scripts.migrate_storage --source ./data
 # Upload các file database đang tham chiếu và đọc lại đối chiếu SHA-256:
-.venv/bin/python -m scripts.migrate_storage --source ./data --apply
+venv/bin/python -m scripts.migrate_storage --source ./data --apply
 # Chỉ bật sau khi toàn bộ file đã được kiểm tra thành công:
 python3 -m scripts.configure_storage --activate
 ```

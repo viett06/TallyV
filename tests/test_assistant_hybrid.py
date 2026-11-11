@@ -12,7 +12,7 @@ from pydantic import SecretStr
 
 from app.assistant.config import settings
 from app.assistant.schema.tasks import DataPlan, DataStep
-from app.assistant.services import hybrid_codegen, hybrid_sandbox, planner, tools
+from app.assistant.services import hybrid, hybrid_codegen, hybrid_sandbox, planner, tools
 from app.core.config import settings as app_settings
 from app.worker import run_one
 from scripts.assistant_sandbox import docker_command, run_in_sandbox
@@ -171,6 +171,44 @@ def test_hybrid_workbook_checkpoint_privacy_repair_and_report(context, monkeypat
     document = Document(io.BytesIO(result.content))
     assert any(p.text == "Dòng nguồn: 2" for p in document.paragraphs)
     assert document.tables[0].cell(1, 1).text == "365070"
+
+
+
+def test_openrouter_sheet_profile_only_sends_header_names_and_types(monkeypatch):
+    monkeypatch.setattr(settings, "hybrid_sheet_provider", "openrouter")
+    monkeypatch.setattr(app_settings, "openrouter_api_key", SecretStr("synthetic-test-api-key"))
+
+    def reject_local(*args, **kwargs):
+        pytest.fail("Sheet profiling should use OpenRouter")
+
+    def respond(request):
+        body = json.loads(request.content)
+        assert request.url == "https://openrouter.ai/api/v1/chat/completions"
+        assert body["provider"]["zdr"] and body["provider"]["only"] == ["azure"]
+        assert body["response_format"]["json_schema"]["name"] == "assistant_sheet_profile"
+        assert SECRET not in request.content.decode()
+        assert json.loads(body["messages"][1]["content"]) == {
+            "columns": [{"index": 1, "name": "Trình độ", "type": "text"}],
+        }
+        description = {
+            "meaning": "employees",
+            "description": "Thông tin nhân sự",
+            "columns": [{"index": 1, "meaning": "category", "description": "Trình độ chuyên môn"}],
+        }
+        return httpx.Response(200, json={"choices": [
+            {"finish_reason": "stop", "message": {"content": json.dumps(description)}},
+        ]})
+
+    monkeypatch.setattr(planner, "schema_call", reject_local)
+    monkeypatch.setattr(
+        hybrid_codegen,
+        "httpx",
+        SimpleNamespace(Client=partial(httpx.Client, transport=httpx.MockTransport(respond)), HTTPError=httpx.HTTPError),
+    )
+    profile = hybrid.source_profile({
+        "name": SECRET, "sheet": SECRET, "rows": [SECRET], "columns": ["Trình độ"], "types": ["text"],
+    })
+    assert profile["column_descriptions"][0]["meaning"] == "category"
 
 
 def test_sandbox_launch_is_fail_closed_and_does_not_mount_host_paths():

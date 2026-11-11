@@ -41,6 +41,12 @@
     "check_out": "Giờ ra",
     "not_applicable": "Không áp dụng"
   },
+  "default_rule_descriptions": {
+    "FORGOT_CHECK": "Nhân viên quên thao tác chấm vào hoặc chấm ra.",
+    "DEVICE_ERROR": "Máy hoặc hệ thống gặp lỗi khi nhân viên thực hiện thao tác chấm công.",
+    "LEAVE_NOT_RECORDED": "Có đề nghị hoặc phê duyệt nghỉ phép nhưng phép chưa được ghi nhận.",
+    "UNKNOWN": "Dữ kiện không đủ, mâu thuẫn hoặc không phân biệt được các loại lỗi."
+  },
   "classification_keywords": {
     "FORGOT_CHECK": [
       "quen cham",

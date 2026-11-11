@@ -36,6 +36,7 @@ const priority: Record<string, number> = { RUNNING: 0, PENDING: 1, FAILED: 2, DO
 function jobTitle(job: ProcessingJob) {
   if (job.kind === 'IMPORT_EMAIL') return t('jobs.reference_email', { id: job.payload.email_id })
   if (job.kind === 'ANALYZE') return t('jobs.reference_version', { id: job.payload.version_id })
+  if (job.kind === 'INDEX_EVIDENCE') return t('jobs.index_evidence', { id: job.payload.version_id })
   if (job.kind === 'SYNC') return t('jobs.sync_reference')
   if (job.kind === 'DEMO') return t('jobs.send_demo_mail')
   if (job.kind === 'HR_SUBMIT') return t('integration.hr_submit_job')

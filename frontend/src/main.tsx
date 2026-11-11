@@ -1,3 +1,6 @@
+import vinmecLogo from './chatbot/assets/vinmec.png'
+import { EmployeePortal } from './chatbot/EmployeePortal'
+import { ChatbotWorkspace } from './chatbot/ChatbotWorkspace'
 import { AssistantWorkspace } from './assistant/AssistantWorkspace'
 import { JobsQueue, type ProcessingJob } from './components/JobsQueue'
 import { HrWorkspace } from './components/HrIntegration'
@@ -7,16 +10,64 @@ import { ReviewSchedule, calendarDate, cycleReference } from './components/Revie
 import { t } from './i18n'
 import React, { useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { Activity, ArrowDownToLine, ArrowRight, Bell, BookOpen, Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, Clock3, FileSpreadsheet, FolderCheck, Inbox, LayoutDashboard, ListFilter, LogOut, Mail, Plus, RefreshCw, Search, Settings2, ShieldCheck, Sparkles, Users, X, ZoomIn, AlertCircle, CircleHelp, CheckCircle2, Server, ExternalLink } from 'lucide-react'
+import { Activity, ArrowDownToLine, ArrowRight, Bell, BookOpen, Bot, CalendarDays, Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, Clock3, FileSpreadsheet, FolderCheck, Inbox, LayoutDashboard, LogOut, Mail, Menu, Plus, RefreshCw, Search, Settings2, ShieldCheck, Sparkles, Users, X, ZoomIn, AlertCircle, CircleHelp, CheckCircle2, Server, ExternalLink } from 'lucide-react'
 import './styles.css'
 import './integration.css'
+import './attendance.css'
 
 type Item = Record<string, any>
-const CAT: Item = {FORGOT_CHECK:t("category.forgot_check"), DEVICE_ERROR:t("category.device_error"), LEAVE_NOT_RECORDED:t("category.leave_not_recorded"), UNKNOWN:t("category.unknown")}
+type AttendanceRule = {
+  id: number
+  category: string
+  label: string
+  settings: {
+    version: string
+    description?: string
+    keywords: string[]
+    require_evidence: boolean
+    require_readable_ocr: boolean
+    require_shift: boolean
+    require_punch: boolean
+  }
+}
+
+const RULE_CONDITIONS = [
+  ['require_evidence', 'rules.evidence_present', 'rules.require_evidence'],
+  ['require_readable_ocr', 'rules.readable_ocr', 'rules.require_readable_ocr'],
+  ['require_shift', 'rules.shift_present', 'rules.require_shift'],
+  ['require_punch', 'rules.punch_present', 'rules.require_punch'],
+] as const
+
+type RuleDraft = Omit<AttendanceRule['settings'], 'version' | 'keywords'> & {
+  label: string
+  keywords: string
+}
+
+const NEW_RULE: RuleDraft = {
+  label: '',
+  description: '',
+  keywords: '',
+  require_evidence: true,
+  require_readable_ocr: true,
+  require_shift: true,
+  require_punch: false,
+}
 const HR: Item = {PENDING_REVIEW:t("hr.pending_review"), NEEDS_INFO:t("hr.needs_info"), CONFIRMED:t("hr.confirmed"), SUPERSEDED:t("hr.superseded")}
 const INTAKE: Item = {RECEIVED:t("intake.received"), PROCESSING:t("intake.processing"), IMPORTED:t("intake.imported"), PARTIAL_ERROR:t("intake.partial_error"), FAILED:t("intake.failed"), NEEDS_REVIEW:t("intake.needs_review"), DUPLICATE:t("intake.duplicate"), UNSUPPORTED:t("intake.unsupported")}
 const ASSESS: Item = {NOT_EVALUATED:t("analysis.not_evaluated"),SUFFICIENT:t("assessment.sufficient"), MISSING:t("assessment.missing"), CONFLICT:t("assessment.conflict")}
-const NAV = [{id:'overview',label:t("nav.overview"),icon:LayoutDashboard},{id:'inbox',label:t("nav.inbox"),icon:Inbox},{id:'cases',label:t("nav.cases"),icon:FolderCheck},{id:'hr',label:t('integration.hr_tile'),icon:Server},{id:'rules',label:t("nav.rules"),icon:Settings2},{id:'jobs',label:t("nav.jobs"),icon:Activity},{id:'assistant',label:t('nav.assistant'),icon:Sparkles}]
+const NAV = [{id:'overview',label:t("nav.overview"),icon:LayoutDashboard},{id:'inbox',label:t("nav.inbox"),icon:Inbox},{id:'cases',label:t("nav.cases"),icon:FolderCheck},{id:'hr',label:t('integration.hr_tile'),icon:Server},{id:'rules',label:t("nav.rules"),icon:Settings2},{id:'jobs',label:t("nav.jobs"),icon:Activity},{id:'assistant',label:t('nav.assistant'),icon:Sparkles},{id:'chatbot',label:t('nav.chatbot'),icon:Bot}]
+const NAV_GROUPS = [
+  { label: 'nav.business_caption', views: ['overview', 'inbox', 'cases', 'hr'] },
+  { label: 'nav.tools_caption', views: ['jobs', 'rules', 'assistant', 'chatbot'] },
+] as const
+
+function WorkspaceBrand({ showLabel = true }: { showLabel?: boolean }) {
+  return <div className="attendance-brand">
+    <span className="attendance-brand-icon"><CheckCheck size={23}/></span>
+    <span><strong>TallyV</strong>{showLabel&&<small>{t('workspace.attendance_management')}</small>}</span>
+  </div>
+}
+
 const processingLabel = (mode:string) => t(mode==='GEMINI'?'processing.gemini':mode==='LOCAL_LLM'?'processing.local_llm':'processing.rules_label')
 const dateTime = (s:string) => s ? new Date(s).toLocaleString('vi-VN',{timeZone:'Asia/Ho_Chi_Minh',hour:'2-digit',minute:'2-digit',day:'2-digit',month:'2-digit',year:'numeric'}) : '—'
 async function api(path:string, options:RequestInit = {}) {
@@ -25,7 +76,9 @@ async function api(path:string, options:RequestInit = {}) {
   return response.status===204?null:response.json()
 }
 function Badge({value,kind='hr'}:{value:string,kind?:string}) {const labels = kind==='assessment'?ASSESS:kind==='intake'?INTAKE:HR; return <span className={'badge b-'+value}>{labels[value]||({NOT_STARTED:t("analysis.not_evaluated"),PENDING:t("processing.pending"),RUNNING:t("processing.running"),DONE:t("processing.done"),COMPLETED:t("processing.completed"),FAILED:t("processing.failed"),ACTIVE:t("versions.active"),PROPOSED:t("versions.proposed"),REJECTED:t("versions.rejected"),READABLE:t("evidence.readable"),UNREADABLE:t("evidence.unreadable"),UNAVAILABLE:t("evidence.unavailable")} as Item)[value]||value}</span>}
-function Category({value}:{value:string}) {return <span className={'category cat-'+value}><span/>{CAT[value]||value}</span>}
+function Category({value, labels}:{value:string, labels:Record<string, string>}) {
+  return <span className={'category cat-'+value}><span/>{labels[value] ?? value}</span>
+}
 function Empty({title,children}:{title:string,children?:React.ReactNode}) {return <div className="empty"><Inbox size={34}/><h3>{title}</h3><p>{children||t("empty.filter_hint")}</p></div>}
 function EvidenceObservations({evidence}:{evidence:Item}) {
   const extracted = evidence.extracted || {}
@@ -35,7 +88,17 @@ function EvidenceObservations({evidence}:{evidence:Item}) {
     scene?.person_at_desk===true?'evidence.vision_at_desk':null,
     scene?.screen_visible===true?'evidence.vision_screen_visible':null,
   ] as const
-  const comparison = extracted.gemini_comparison
+  const comparison = extracted.attendance_comparison || extracted.gemini_comparison
+  const history = extracted.image_history
+  const historyLabels = {
+    KNOWN_VIEW: 'evidence.history_known', KNOWN_VIEW_UNLOCATED: 'evidence.history_unlocated',
+    PARTIAL: 'evidence.history_partial', AMBIGUOUS: 'evidence.history_ambiguous',
+    NO_MATCH: 'evidence.history_no_match', NO_REFERENCE: 'evidence.history_empty',
+    INSUFFICIENT_BACKGROUND: 'evidence.history_insufficient', POSSIBLE_REUSE: 'evidence.history_reuse',
+    UNAVAILABLE: 'evidence.history_unavailable', OUT_OF_SCOPE: 'evidence.history_excluded',
+  } as const
+  const historyLabel = historyLabels[history?.status as keyof typeof historyLabels]
+  const offset = extracted.attendance_comparison?.minutes_from_expected_punch
   const labels: Item = {employee_match:'evidence.employee_comparison',work_date_match:'evidence.date_comparison',shift_match:'evidence.shift_comparison'}
   const statuses: Item = {MATCH:'evidence.comparison_match',MISMATCH:'evidence.comparison_mismatch',UNKNOWN:'evidence.comparison_unknown'}
   const visionStatuses = {UNAVAILABLE:'evidence.vision_unavailable',TEST_IMAGE_REQUIRED:'evidence.vision_test_image_required',NOT_CONFIGURED:'evidence.vision_not_configured'} as const
@@ -48,6 +111,19 @@ function EvidenceObservations({evidence}:{evidence:Item}) {
     {visionNotice&&<p className="muted">{t(visionNotice)}</p>}
     {(extracted.date||extracted.time)&&<p><strong>{[extracted.date,extracted.time].filter(Boolean).join(' ')}</strong></p>}
     {comparison&&<ul>{Object.entries(labels).map(([key,label])=><li className={comparison[key]==='MISMATCH'?'red-text':''} key={key}>{t(label)} · {t(statuses[comparison[key]]||'evidence.comparison_unknown')}</li>)}</ul>}
+    {extracted.time_source==='ONLY_VISIBLE_TIME'&&<p className="muted">{t('evidence.event_time_visible_only')}</p>}
+    {extracted.time_source==='AMBIGUOUS'&&<p className="muted">{t('evidence.event_time_unclear')}</p>}
+    {Number.isInteger(offset)&&<p>{offset===0
+      ? t('evidence.punch_offset_exact')
+      : t(offset<0?'evidence.punch_offset_early':'evidence.punch_offset_late',{minutes:Math.abs(offset)})}</p>}
+    {historyLabel&&<div className="evidence-history-result">
+      <p><strong>{t(historyLabel)}</strong>{history.location&&<> · {history.location}</>}</p>
+      {!!history.matches?.length&&<ul>{history.matches.slice(0,3).map((match:Item)=>
+        <li key={match.reference_evidence_id}>{t('evidence.history_match_details',{
+          reference:match.reference_evidence_id, regions:match.regions.length, points:match.feature_count,
+        })}{match.shared_signage&&<> · {t('evidence.history_shared_signage')}</>}</li>)}</ul>}
+      {history.reference_evidence_id&&<p>{t('evidence.history_previous_image',{reference:history.reference_evidence_id})}</p>}
+    </div>}
     {!!extracted.ocr_regions?.length&&<details><summary>{t("evidence.ocr_regions")}</summary>
       <div className="ocr-region-preview"><img src={evidence.url} alt={t("evidence.ocr_regions")}/>
         <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">{extracted.ocr_regions.map((line:Item,index:number)=>{
@@ -61,7 +137,13 @@ function EvidenceObservations({evidence}:{evidence:Item}) {
 function App(){
   const [mailboxOpen,setMailboxOpen]=useState(false)
   const [user,setUser]=useState<Item|null>(null),[loading,setLoading]=useState(true),[loginError,setLoginError]=useState('')
-  const [tab,setTab]=useState(()=>new URLSearchParams(window.location.search).get('app')==='assistant'?'assistant':new URLSearchParams(window.location.search).get('app')==='hr-attendance'?'hr':'overview'),[bootstrap,setBootstrap]=useState<Item>({departments:[],periods:[],rules:[],mode:'RULE_BASED',mail_provider:'outlook',synthetic:false,mailbox:{test_mode:true}}),[period,setPeriod]=useState(''),[department,setDepartment]=useState('')
+  const [tab,setTab]=useState(()=>{
+    const app = new URLSearchParams(window.location.search).get('app')
+    if (app === 'policy-documents') return 'chatbot'
+    if (app === 'assistant' || app === 'chatbot') return app
+    return app === 'hr-attendance' ? 'hr' : 'overview'
+  })
+  const [bootstrap,setBootstrap]=useState<Item>({departments:[],periods:[],rules:[],mode:'RULE_BASED',mail_provider:'outlook',synthetic:false,mailbox:{test_mode:true}}),[period,setPeriod]=useState(''),[department,setDepartment]=useState('')
   const [cycle,setCycle]=useState(''),[followCurrentMonth,setFollowCurrentMonth]=useState(true)
   const refreshSequence=useRef(0)
   const [dashboard,setDashboard]=useState<Item>({}),[cases,setCases]=useState<Item>({items:[],total:0}),[emails,setEmails]=useState<Item[]>([]),[jobs,setJobs]=useState<ProcessingJob[]>([])
@@ -69,7 +151,13 @@ function App(){
   const [selected,setSelected]=useState<number[]>([]),[detail,setDetail]=useState<Item|null>(null),[emailDetail,setEmailDetail]=useState<Item|null>(null),[bulkModal,setBulkModal]=useState(false),[zoom,setZoom]=useState('')
   const [notice,setNotice]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false),[mobile,setMobile]=useState(false)
   const [hrCategory,setHrCategory]=useState('UNKNOWN'),[hrStatus,setHrStatus]=useState('PENDING_REVIEW'),[hrNote,setHrNote]=useState(''),[ack,setAck]=useState(false),[override,setOverride]=useState(''),[versionReason,setVersionReason]=useState('')
-  const [ruleDraft,setRuleDraft]=useState<Item>({}),[ruleModal,setRuleModal]=useState('')
+  const [ruleDraft,setRuleDraft]=useState<RuleDraft>(NEW_RULE),[ruleModal,setRuleModal]=useState('')
+  const attendanceRules: AttendanceRule[] = bootstrap.rules
+  const categoryLabels: Record<string, string> = Object.fromEntries(attendanceRules.map(rule=>[rule.category,rule.label]))
+  const creatingRule = ruleModal === 'new'
+  const ruleDialogTitle = t(creatingRule?'actions.add_rule':'rules.dialog_title')
+  const ruleKeywords = ruleDraft.keywords.split('\n').map(keyword=>keyword.trim()).filter(Boolean)
+  const invalidRuleKeywords = ruleKeywords.length>20 || ruleKeywords.some(keyword=>keyword.length>100)
   const query = new URLSearchParams({source:bootstrap.mail_provider,period,cycle,department,search,category,assessment,hr_status:status,page:String(page),sort,direction}).toString()
   const refresh = async()=>{
     const sequence=++refreshSequence.current
@@ -91,8 +179,31 @@ function App(){
   useEffect(()=>{if(!user)return;let alive=true; const load=()=>refresh().catch(e=>{if(alive)setError(e.message)});load();const timer=setInterval(load,4000);return()=>{alive=false;clearInterval(timer)}},[user,query,followCurrentMonth])
   useEffect(()=>{window.scrollTo({top:0,behavior:'auto'})},[tab])
   useEffect(()=>{setPage(1);setSelected([])},[period,cycle,department,search,category,assessment,status,sort,direction])
-  useEffect(()=>{const close=(e:KeyboardEvent)=>{if(e.key==='Escape'){if(zoom)setZoom('');else if(mailboxOpen)setMailboxOpen(false);else{setDetail(null);setEmailDetail(null);setBulkModal(false);setRuleModal('')}}};window.addEventListener('keydown',close);return()=>window.removeEventListener('keydown',close)},[zoom,mailboxOpen])
+  useEffect(()=>{const close=(e:KeyboardEvent)=>{if(e.key==='Escape'){if(zoom)setZoom('');else if(mailboxOpen)setMailboxOpen(false);else if(mobile)setMobile(false);else{setDetail(null);setEmailDetail(null);setBulkModal(false);setRuleModal('')}}};window.addEventListener('keydown',close);return()=>window.removeEventListener('keydown',close)},[zoom,mailboxOpen,mobile])
   async function action(fn:()=>Promise<any>,message:string){setBusy(true);setError('');try{await fn();setNotice(message);await refresh()}catch(e:any){setError(e.message)}finally{setBusy(false)}}
+  function openRuleEditor(rule?: AttendanceRule) {
+    setError('')
+    if (rule) {
+      const {version, keywords, ...settings} = rule.settings
+      setRuleDraft({...settings, label: rule.label, keywords: keywords.join('\n')})
+      setRuleModal(rule.category)
+    } else {
+      setRuleDraft(NEW_RULE)
+      setRuleModal('new')
+    }
+  }
+  function saveRule(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (busy || invalidRuleKeywords) return
+    const payload = {...ruleDraft, keywords: ruleKeywords}
+    void action(async()=>{
+      await api(creatingRule?'/rules':'/rules/'+ruleModal,{
+        method: creatingRule?'POST':'PUT',
+        body: JSON.stringify(payload),
+      })
+      setRuleModal('')
+    },t(creatingRule?'notices.rule_created':'notices.rules_updated'))
+  }
   async function syncEmail(){
     if(bootstrap.mail_provider==='outlook'&&bootstrap.mailbox?.status==='CONNECTED'){setMailboxOpen(true);return}
     if(bootstrap.mail_provider==='outlook'&&bootstrap.mailbox?.status!=='CONNECTED'){
@@ -123,26 +234,189 @@ function App(){
   const currentNav=NAV.find(n=>n.id===tab)!
   const processing=jobs.some(j=>j.status==='PENDING'||j.status==='RUNNING')
   const selectRows=(checked:boolean)=>setSelected(checked?cases.items.filter((c:Item)=>c.bulk_eligible).map((c:Item)=>c.id):[])
-  const navigate=(value:string)=>{setTab(value);setMobile(false);const url=new URL(window.location.href);if(value==='assistant')url.searchParams.set('app','assistant');else{url.searchParams.delete('app');url.searchParams.delete('chat')};window.history.replaceState({},'',url)}
+  const navigate=(value:string)=>{setTab(value);setMobile(false);const url=new URL(window.location.href);if(value==='assistant'||value==='chatbot')url.searchParams.set('app',value);else url.searchParams.delete('app');if(value!=='assistant')url.searchParams.delete('chat');window.history.replaceState({},'',url)}
   const saveReview=()=>action(async()=>{await api(`/cases/${detail!.id}/review`,{method:'PATCH',body:JSON.stringify({category:hrCategory,status:hrStatus,note:hrNote,acknowledge_exception:ack,override_reason:override})});await openCase(detail!.id)},t("notices.review_saved"))
   if(loading)return <div className="loading-screen"><RefreshCw className="spin"/>{t("app.loading")}</div>
-  if(!user)return <div className="login-shell"><div className="login-art"><div className="brand"><span className="brand-mark"><CheckCheck/></span>Tally<span>V</span></div><div><span className="eyebrow">{t("login.workspace_eyebrow")}</span><h1>{t("login.headline_first")}<br/>{t("login.headline_second")}<br/><em>{t("login.headline_emphasis")}</em></h1><p>{t("login.introduction")}</p><div className="login-trail"><Mail/><span/><FileSpreadsheet/><span/><ShieldCheck/></div></div><small>{(bootstrap.mailbox?.transport==='composio'?t("composio.processing_notice"):t(bootstrap.mode==='GEMINI'?'rules.gemini_notice':'outlook.local_processing_notice'))}</small></div><div className="login-form-wrap"><form className="login-form" onSubmit={async e=>{e.preventDefault();const data=new FormData(e.currentTarget);setBusy(true);try{setUser(await api('/auth/login',{method:'POST',body:JSON.stringify(Object.fromEntries(data))}));setLoginError('')}catch(e:any){setLoginError(e.message)}finally{setBusy(false)}}}><span className="demo-label"><span/>{bootstrap.synthetic?t("common.synthetic_data"):bootstrap.mailbox?.transport==='composio'?t("composio.source_label"):bootstrap.mailbox?.test_mode?t("outlook.test_source_label"):t("outlook.source_label")}</span><h2>{t("login.title")}</h2><p>{t("login.welcome")}</p><label>{t("login.username")}<input name="username" autoComplete="username" defaultValue="hr.demo" required/></label><label>{t("login.password")}<input name="password" type="password" autoComplete="current-password" placeholder={t("login.password_placeholder")} required/></label>{loginError&&<div className="alert error">{loginError}</div>}<button className="btn primary wide" disabled={busy}>{t("login.submit")}<ArrowRight size={17}/></button><div className="login-note"><ShieldCheck size={20}/><span>{t("outlook.hr_account")}<br/>{t("login.credentials_hint")}</span></div></form></div></div>
-  return <div className="app-shell">
-    <aside className={'sidebar '+(mobile?'mobile-open':'')}><div className="brand"><span className="brand-mark"><CheckCheck/></span>Tally<span>V</span><button className="icon-btn mobile-close" onClick={()=>setMobile(false)} aria-label={t("actions.close_menu")}><X/></button></div><div className="workspace"><span className="workspace-icon"><Users size={18}/></span><div><strong>{t("workspace.title")}</strong><small>{t("workspace.attendance_review")}</small></div><ChevronDown size={14}/></div><span className="nav-caption">{t("nav.business_caption")}</span><nav>{NAV.map(n=><button key={n.id} className={tab===n.id?'active':''} onClick={()=>navigate(n.id)}><n.icon size={19}/>{n.label}{n.id==='inbox'&&dashboard.email_errors>0&&<span className="nav-count">{dashboard.email_errors}</span>}</button>)}</nav><div className="sidebar-bottom"><div className="local-card"><span className="local-dot"/><strong>{t(bootstrap.mode==='GEMINI'?'workspace.gemini_processing':'workspace.local_processing')}</strong><p>{t("workspace.transparent_rules")}<br/>{t("workspace.hr_decides")}</p><ShieldCheck size={38}/></div><button className="help-link" onClick={()=>{setTab('rules');setNotice(t("notices.demo_rules_only"))}}><CircleHelp size={17}/>{t("nav.help")}</button><div className="profile"><div className="avatar">HR</div><div><strong>{user.username}</strong><small>{bootstrap.synthetic?t("workspace.demo_account"):t("outlook.hr_account")}</small></div><button className="icon-btn" aria-label={t("actions.logout")} onClick={()=>action(async()=>{await api('/auth/logout',{method:'POST'});setUser(null)},t("notices.logged_out"))}><LogOut size={16}/></button></div></div></aside>
-    <div className="main-shell"><header className="topbar"><div className="breadcrumb"><button className="icon-btn mobile-menu" aria-label={t("actions.open_menu")} onClick={()=>setMobile(true)}><ListFilter/></button><span>{t("workspace.title")}</span><ChevronRight size={14}/><strong>{currentNav.label}</strong></div><div className="topbar-right"><span className="demo-label"><span/>{bootstrap.synthetic?t("common.synthetic_data"):bootstrap.mailbox?.transport==='composio'?t("composio.source_label"):bootstrap.mailbox?.test_mode?t("outlook.test_source_label"):t("outlook.source_label")}</span><span className="divider"/><button className="icon-btn notification" aria-label={t("actions.view_jobs")} onClick={()=>setTab('jobs')}><Bell size={19}/>{processing&&<i/>}</button><div className="avatar small">HR</div></div></header>
-    <main className={tab==='assistant'?'assistant-page':undefined}><div className="page-heading"><div><div className="eyebrow">{t("app.section_eyebrow")}</div><h1>{currentNav.label}</h1><p>{({assistant:t('assistant.description'),hr:t('integration.nav_description'),overview:t("overview.description"),inbox:t("inbox.description"),cases:t("cases.description"),rules:t("rules.description"),jobs:t("jobs.description")} as Item)[tab]}</p></div>{tab!=='hr'&&tab!=='assistant'&&<div className="heading-actions"><button className="btn secondary" onClick={syncEmail} disabled={busy}><RefreshCw size={16} className={processing?'spin':''}/>{bootstrap.mail_provider==='outlook'?t("outlook.sync"):t("outlook.sync_demo")}</button><button className="btn secondary" onClick={()=>setMailboxOpen(true)}><Mail size={16}/>{t("outlook.settings")}</button><a className="btn primary" href={'/api/export?'+query}><ArrowDownToLine size={16}/>{t("actions.export_excel")}</a></div>}</div>
+  const sourceLabel = bootstrap.synthetic ? t('common.synthetic_data')
+    : bootstrap.mailbox?.transport === 'composio' ? t('composio.source_label')
+    : bootstrap.mailbox?.test_mode ? t('outlook.test_source_label') : t('outlook.source_label')
+
+  const showCases = (filter: { status?: string; category?: string; assessment?: string } = {}) => {
+    setSearch(''); setStatus(filter.status ?? ''); setCategory(filter.category ?? ''); setAssessment(filter.assessment ?? '')
+    setPage(1); navigate('cases')
+  }
+
+  if (!user) return <div className="login-shell attendance-login">
+    <section className="login-art">
+      <WorkspaceBrand showLabel={false}/>
+      <div className="attendance-login-intro">
+        <h1>{t('workspace.attendance_management')}</h1>
+        <p>{t('login.introduction')}</p>
+      </div>
+      <div className="attendance-login-decoration" aria-hidden="true"/>
+    </section>
+    <div className="login-form-wrap">
+      <form className="login-form" onSubmit={async e => {
+        e.preventDefault()
+        const data = new FormData(e.currentTarget)
+        setBusy(true)
+        try {
+          setUser(await api('/auth/login', { method: 'POST', body: JSON.stringify(Object.fromEntries(data)) }))
+          setLoginError('')
+        } catch (e: any) {
+          setLoginError(e.message)
+        } finally {
+          setBusy(false)
+        }
+      }}>
+        <img className="attendance-login-logo" src={vinmecLogo} alt="Vinmec"/>
+        <h2>{t('login.title')}</h2>
+        <label>{t('login.username')}<input name="username" autoComplete="username" defaultValue="hr.demo" required/></label>
+        <label>{t('login.password')}<input name="password" type="password" autoComplete="current-password"
+          placeholder={t('login.password_placeholder')} required/></label>
+        {loginError&&<div className="alert error" role="alert">{loginError}</div>}
+        <button className="btn primary wide" disabled={busy}>{t('login.submit')}<ArrowRight size={17}/></button>
+        <div className="login-note"><ShieldCheck size={18}/><span>{t('login.credentials_hint')}</span></div>
+      </form>
+    </div>
+  </div>
+
+  return <div className="app-shell attendance-shell">
+    {mobile&&<button className="attendance-mobile-scrim" type="button" onClick={()=>setMobile(false)}
+      aria-label={t('actions.close_menu')}/>}
+    <aside id="attendance-navigation" className={'sidebar '+(mobile?'mobile-open':'')}>
+      <div className="attendance-sidebar-head">
+        <WorkspaceBrand/>
+        <button className="icon-btn mobile-close" onClick={()=>setMobile(false)} aria-label={t('actions.close_menu')}><X size={20}/></button>
+      </div>
+      <nav className="attendance-navigation" aria-label={t('workspace.title')}>
+        {NAV_GROUPS.map(group => <div className="attendance-nav-group" key={group.label}>
+          <h2 className="nav-caption">{t(group.label)}</h2>
+          {group.views.map(id => {
+            const item = NAV.find(n => n.id === id)!
+            return <button key={id} className={tab === id ? 'active' : ''}
+              aria-current={tab === id ? 'page' : undefined} onClick={() => navigate(id)}>
+              <item.icon size={18}/><span>{item.label}</span>
+              {id === 'inbox' && dashboard.email_errors > 0 && <span className="nav-count">{dashboard.email_errors}</span>}
+            </button>
+          })}
+        </div>)}
+      </nav>
+      <div className="sidebar-bottom">
+        <div className="profile">
+          <div className="avatar" aria-hidden="true">HR</div>
+          <div><strong>{user.username}</strong><small>{bootstrap.synthetic?t('workspace.demo_account'):t('outlook.hr_account')}</small></div>
+          <button className="icon-btn" aria-label={t('actions.logout')} title={t('actions.logout')}
+            onClick={() => action(async () => { await api('/auth/logout', { method: 'POST' }); setUser(null) }, t('notices.logged_out'))}>
+            <LogOut size={17}/>
+          </button>
+        </div>
+      </div>
+    </aside>
+    <div className="main-shell">
+      <header className="topbar">
+        <div className="breadcrumb">
+          <button className="icon-btn mobile-menu" aria-label={t('actions.open_menu')} aria-expanded={mobile}
+            aria-controls="attendance-navigation" onClick={()=>setMobile(true)}><Menu size={22}/></button>
+          <img className="attendance-header-logo" src={vinmecLogo} alt="Vinmec"/>
+          <span className="attendance-breadcrumb-separator" aria-hidden="true"/>
+          <span>{t('workspace.title')}</span><ChevronRight size={14} aria-hidden="true"/><strong>{currentNav.label}</strong>
+        </div>
+        <div className="topbar-right">
+          <span className="demo-label"><span/>{sourceLabel}</span>
+          <button className="icon-btn notification" aria-label={t('actions.view_jobs')} title={t('actions.view_jobs')}
+            onClick={()=>navigate('jobs')}><Bell size={19}/>{processing&&<i/>}</button>
+        </div>
+      </header>
+      <main className={tab==='assistant'?'assistant-page':undefined}>
+        <div className="page-heading">
+          <div>
+            <h1>{tab==='overview' ? t('overview.page_title') : currentNav.label}</h1>
+            {tab!=='overview'&&tab!=='cases'&&<p>{({
+              assistant:t('assistant.description'),chatbot:t('policy.description'),hr:t('integration.nav_description'),
+              inbox:t('inbox.description'),rules:t('rules.description'),jobs:t('jobs.description'),
+            } as Item)[tab]}</p>}
+          </div>
+          {(tab==='overview'||tab==='inbox'||tab==='cases'||tab==='rules'||tab==='jobs')&&<div className="heading-actions">
+            <button className="btn secondary" onClick={syncEmail} disabled={busy}>
+              <RefreshCw size={16} className={processing?'spin':''}/>{bootstrap.mail_provider==='outlook'?t('outlook.sync'):t('outlook.sync_demo')}
+            </button>
+            <button className="btn secondary" onClick={()=>setMailboxOpen(true)}><Mail size={16}/>{t('outlook.settings')}</button>
+            <a className="btn primary" href={'/api/export?'+query}><ArrowDownToLine size={16}/>{t('actions.export_excel')}</a>
+          </div>}
+        </div>
     {(error||notice)&&<div role="status" className={'alert '+(error?'error':'success')}>{error?<AlertCircle size={17}/>:<CheckCircle2 size={17}/>}<span>{error||notice}</span><button aria-label={t("actions.dismiss_notice")} onClick={()=>{setError('');setNotice('')}}><X size={16}/></button></div>}
-    {tab!=='jobs'&&tab!=='assistant'&&<div className="scope-bar"><div className="scope-controls"><span className="scope-label">{t("filters.review_period")}</span><select aria-label={t("filters.review_period")} value={period} onChange={e=>changeMonth(e.target.value)}><option value="">{t("filters.all_periods")}</option>{bootstrap.periods.map((p:Item)=><option key={p.id} value={p.id}>{p.name}</option>)}</select><select className="cycle-filter" aria-label={t("calendar.cycle_filter")} value={cycle} disabled={!selectedMonth} onChange={e=>setCycle(e.target.value)}><option value="">{t("calendar.all_cycles")}</option>{selectedMonth?.cycles.map((c:Item)=><option key={c.id} value={c.id}>{t("calendar.option",{number:c.number,send:calendarDate(c.send_on),due:calendarDate(c.due_on)})}</option>)}<option value="unassigned">{t("calendar.unassigned")}</option></select><button className="text-btn current-month" onClick={()=>{setFollowCurrentMonth(true);setPeriod(bootstrap.current_period);setCycle('')}}>{t("calendar.current_month")}</button><span className="scope-separator"/><select aria-label={t("filters.department")} value={department} onChange={e=>setDepartment(e.target.value)}><option value="">{t("filters.all_departments")}</option>{bootstrap.departments.map((d:Item)=><option key={d.id} value={d.id}>{d.name}</option>)}</select></div><div className="mode-label"><span className={processing?'pulse':''}/>{bootstrap.mode==='RULE_BASED'?t("processing.rule_based"):processingLabel(bootstrap.mode)}<small>· {processing?t("processing.running"):t("processing.ready")}</small></div></div>}
-    {tab!=='hr'&&tab!=='jobs'&&tab!=='assistant'&&selectedMonth&&<ReviewSchedule month={selectedMonth} today={bootstrap.today} selected={cycle} onSelect={setCycle} onOpenCarryover={(targetPeriod,value)=>{setFollowCurrentMonth(false);setPeriod(targetPeriod);setCycle(value)}}/>}
-    {tab!=='assistant'&&bootstrap.mail_provider==='outlook'&&bootstrap.mailbox?.status!=='CONNECTED'&&<div className="outlook-banner"><Mail size={20}/><p>{t("outlook.setup_banner")}</p><button className="btn secondary small-btn" onClick={()=>setMailboxOpen(true)}>{t("outlook.connect")}</button></div>}
-    {tab!=='assistant'&&bootstrap.mail_provider==='mailpit'&&!dashboard.total&&<div className="onboarding"><div><Sparkles size={22}/><h3>{t("demo.get_started")}</h3><p>{t("demo.introduction")}</p></div><button className="btn primary" disabled={busy||processing||cycle==='unassigned'} onClick={()=>action(sendDemo,t("notices.demo_queued"))}><Plus size={16}/>{t("actions.create_demo")}</button></div>}
+        {tab!=='jobs'&&tab!=='assistant'&&tab!=='chatbot'&&<section className="scope-bar" aria-label={t('filters.scope_title')}>
+          <div className="scope-controls">
+            <label><span>{t('filters.review_period')}</span>
+              <select value={period} onChange={e=>changeMonth(e.target.value)}>
+                <option value="">{t('filters.all_periods')}</option>
+                {bootstrap.periods.map((p:Item)=><option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </label>
+            <label className="scope-cycle"><span>{t('calendar.cycle_filter')}</span>
+              <select className="cycle-filter" value={cycle} disabled={!selectedMonth} onChange={e=>setCycle(e.target.value)}>
+                <option value="">{t('calendar.all_cycles')}</option>
+                {selectedMonth?.cycles.map((c:Item)=><option key={c.id} value={c.id}>
+                  {t('calendar.option',{number:c.number,send:calendarDate(c.send_on),due:calendarDate(c.due_on)})}
+                </option>)}
+                <option value="unassigned">{t('calendar.unassigned')}</option>
+              </select>
+            </label>
+            <label><span>{t('filters.department')}</span>
+              <select value={department} onChange={e=>setDepartment(e.target.value)}>
+                <option value="">{t('filters.all_departments')}</option>
+                {bootstrap.departments.map((d:Item)=><option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+            </label>
+            <button className="text-btn current-month" onClick={()=>{setFollowCurrentMonth(true);setPeriod(bootstrap.current_period);setCycle('')}}>
+              {t('calendar.current_month')}
+            </button>
+          </div>
+          <div className="mode-label"><span className={processing?'pulse':''}/>
+            {bootstrap.mode==='RULE_BASED'?t('processing.rule_based'):processingLabel(bootstrap.mode)}
+            <small>· {processing?t('processing.running'):t('processing.ready')}</small>
+          </div>
+        </section>}
+        {['overview','inbox','cases','rules'].includes(tab)&&selectedMonth&&<details className="attendance-schedule">
+          <summary><CalendarDays size={17}/><span>{t('calendar.title')}</span><ChevronDown size={16}/></summary>
+          <ReviewSchedule month={selectedMonth} today={bootstrap.today} selected={cycle} onSelect={setCycle}
+            onOpenCarryover={(targetPeriod,value)=>{setFollowCurrentMonth(false);setPeriod(targetPeriod);setCycle(value)}}/>
+        </details>}
+    {tab!=='assistant'&&tab!=='chatbot'&&bootstrap.mail_provider==='outlook'&&bootstrap.mailbox?.status!=='CONNECTED'&&<div className="outlook-banner"><Mail size={20}/><p>{t("outlook.setup_banner")}</p><button className="btn secondary small-btn" onClick={()=>setMailboxOpen(true)}>{t("outlook.connect")}</button></div>}
+    {tab!=='assistant'&&tab!=='chatbot'&&bootstrap.mail_provider==='mailpit'&&!dashboard.total&&<div className="onboarding"><div><Sparkles size={22}/><h3>{t("demo.get_started")}</h3><p>{t("demo.introduction")}</p></div><button className="btn primary" disabled={busy||processing||cycle==='unassigned'} onClick={()=>action(sendDemo,t("notices.demo_queued"))}><Plus size={16}/>{t("actions.create_demo")}</button></div>}
     {tab==='assistant'&&<AssistantWorkspace onSessionExpired={()=>setUser(null)}/>}
+    {tab==='chatbot'&&<ChatbotWorkspace/>}
     {tab==='hr'&&<HrWorkspace api={api} query={new URLSearchParams({source:bootstrap.mail_provider,period,cycle,department}).toString()} onOpenCase={openCase}/>}
+    {tab==='overview'&&<div className="stats-grid">{[{label:t("overview.total_cases"),value:dashboard.total,icon:FolderCheck,caption:t("overview.imported_caption"),status:'',tone:'blue'},{label:t("hr.pending_review"),value:dashboard.pending,icon:Clock3,caption:t("overview.sufficient_count", {value0: dashboard.sufficient||0}),status:'PENDING_REVIEW',tone:'amber'},{label:t("hr.needs_info"),value:dashboard.needs_info,icon:AlertCircle,caption:t("overview.needs_info_caption"),status:'NEEDS_INFO',tone:'rose'},{label:t("hr.confirmed"),value:dashboard.confirmed,icon:CheckCheck,caption:t("overview.confirmed_caption"),status:'CONFIRMED',tone:'mint'}].map(s=><button key={s.label} className={'stat-card '+s.tone} onClick={()=>showCases({status:s.status})}><div className="stat-top"><span>{s.label}</span><span className="stat-icon"><s.icon size={18}/></span></div><strong>{s.value??'—'}</strong><p>{s.caption}<ArrowRight size={14}/></p></button>)}</div>}
     {['overview','inbox','cases'].includes(tab)&&<AnalysisControls api={api} query={new URLSearchParams({source:bootstrap.mail_provider,period,cycle,department}).toString()} onUpdated={refresh} scopeLabel={t('analysis.scope_selected')} disabled={busy}/>}
-    {tab==='overview'&&<><div className="stats-grid">{[{label:t("overview.total_cases"),value:dashboard.total,icon:FolderCheck,caption:t("overview.imported_caption"),tone:'green'},{label:t("hr.pending_review"),value:dashboard.pending,icon:Clock3,caption:t("overview.sufficient_count", {value0: dashboard.sufficient||0}),tone:'amber'},{label:t("hr.needs_info"),value:dashboard.needs_info,icon:AlertCircle,caption:t("overview.needs_info_caption"),tone:'rose'},{label:t("hr.confirmed"),value:dashboard.confirmed,icon:CheckCheck,caption:t("overview.confirmed_caption"),tone:'mint'}].map(s=><button key={s.label} className={'stat-card '+s.tone} onClick={()=>{setTab('cases');setStatus(s.label===t("hr.pending_review")?'PENDING_REVIEW':s.label===t("hr.needs_info")?'NEEDS_INFO':s.label===t("hr.confirmed")?'CONFIRMED':'')}}><div className="stat-top"><span>{s.label}</span><span className="stat-icon"><s.icon size={18}/></span></div><strong>{s.value??'—'}</strong><p>{s.caption}<ArrowRight size={14}/></p></button>)}</div><div className="overview-columns"><section className="panel department-panel"><div className="panel-heading"><div><h2>{t("overview.intake_progress")}</h2><p>{t("overview.department_progress_caption")}</p></div><span className="chip">{dashboard.departments_sent||0}/{dashboard.departments_expected??0}{t("overview.sent_suffix")}</span></div><div className="department-list">{dashboard.by_department?.map((d:Item)=><div className="department-row" key={d.id}><div className={'department-symbol dep-'+d.id}>{String(d.id).padStart(2,'0')}</div><div className="department-info"><div><strong>{d.name.replace(t("common.synthetic_suffix"),'')}</strong><span>{d.count}{t("common.cases_suffix")}</span></div><div className="progress-track"><span style={{width:(bootstrap.mail_provider==='outlook'?(d.received?100:0):Math.min(100,d.count/12*100))+'%'}}/></div></div><span className={'receive-label '+(d.received?'received':'')}>{d.received?<><Check size={13}/>{t("overview.received")}</>:t("overview.not_received")}</span></div>)}</div><div className="panel-foot"><span><Mail size={15}/>{dashboard.emails||0}{t("overview.received_email_suffix")}</span><button className="text-btn" onClick={()=>setTab('inbox')}>{t("actions.open_inbox")}<ArrowRight size={14}/></button></div></section><section className="panel attention-panel"><div className="panel-heading"><div><h2>{t("overview.attention")}</h2><p>{t("overview.next_steps")}</p></div><span className="attention-dot"/></div><button className="attention-item" onClick={()=>{setTab('cases');setAssessment('SUFFICIENT');setStatus('PENDING_REVIEW')}}><span className="attention-icon green"><CheckCircle2 size={20}/></span><div><strong>{dashboard.sufficient||0}{t("overview.sufficient_cases_suffix")}</strong><p>{t("overview.pending_sufficient_caption")}</p></div><ChevronRight size={17}/></button><button className="attention-item" onClick={()=>setTab('inbox')}><span className="attention-icon amber"><Inbox size={20}/></span><div><strong>{dashboard.email_errors||0}{t("overview.email_errors_suffix")}</strong><p>{t("overview.email_errors_caption")}</p></div><ChevronRight size={17}/></button><button className="attention-item" onClick={()=>{setTab('cases');setCategory('UNKNOWN')}}><span className="attention-icon violet"><CircleHelp size={20}/></span><div><strong>{dashboard.unknown||0}{t("overview.unknown_cases_suffix")}</strong><p>{t("overview.unknown_cases_caption")}</p></div><ChevronRight size={17}/></button><div className="demo-disclaimer"><ShieldCheck size={17}/><p>{t("overview.hr_confirmation_notice")}</p></div></section></div><section className="panel"><div className="panel-heading"><div><h2>{t("overview.period_cases")}</h2><p>{t("overview.source_trace_caption")}</p></div><button className="text-btn" onClick={()=>setTab('cases')}>{t("actions.view_all")}<ArrowRight size={15}/></button></div><CaseTable items={cases.items.slice(0,5)} selected={[]} setSelected={()=>{}} openCase={openCase} compact/><div className="panel-foot"><span><ShieldCheck size={15}/>{bootstrap.synthetic?t("common.synthetic_notice"):(bootstrap.mailbox?.transport==='composio'?t("composio.processing_notice"):t(bootstrap.mode==='GEMINI'?'rules.gemini_notice':'outlook.local_processing_notice'))}</span><span>{t("common.sap_not_connected")}</span></div></section></>}
-    {tab==='cases'&&<section className="panel cases-panel"><div className="status-tabs">{[['',t("filters.all_cases")],['PENDING_REVIEW',t("filters.pending_review")],['NEEDS_INFO',t("hr.needs_info")],['CONFIRMED',t("hr.confirmed")]].map(([id,label])=><button key={id} className={status===id?'active':''} onClick={()=>setStatus(id)}>{label}{id===''&&<span>{dashboard.total||0}</span>}</button>)}</div><div className="table-toolbar"><div className="search-field"><Search size={17}/><input aria-label={t("filters.search_cases")} placeholder={t("filters.search_placeholder")} value={search} onChange={e=>setSearch(e.target.value)}/></div><div className="filter-group"><select aria-label={t("filters.category")} value={category} onChange={e=>setCategory(e.target.value)}><option value="">{t("filters.all_categories")}</option>{Object.entries(CAT).map(([id,label])=><option key={id} value={id}>{String(label)}</option>)}</select><select aria-label={t("filters.assessment")} value={assessment} onChange={e=>setAssessment(e.target.value)}><option value="">{t("filters.all_assessments")}</option>{Object.entries(ASSESS).map(([id,label])=><option key={id} value={id}>{String(label)}</option>)}</select><select aria-label={t("filters.sort")} value={sort+':'+direction} onChange={e=>{const [s,d]=e.target.value.split(':');setSort(s);setDirection(d)}}><option value="code:asc">{t("sort.code_ascending")}</option><option value="code:desc">{t("sort.code_descending")}</option><option value="date:desc">{t("sort.newest_date")}</option><option value="employee:asc">{t("fields.employee_code")}</option><option value="status:asc">{t("fields.hr_status")}</option></select></div></div>{selected.length>0&&<div className="selection-bar"><span><CheckCheck size={16}/><strong>{selected.length}</strong>{t("selection.selected_cases_suffix")}</span><button className="btn primary small-btn" onClick={()=>setBulkModal(true)}>{t("actions.bulk_confirm")}</button><button className="text-btn" onClick={()=>setSelected([])}>{t("actions.clear_selection")}</button></div>}<CaseTable items={cases.items} selected={selected} setSelected={setSelected} openCase={openCase} onSelectAll={selectRows}/><div className="pagination"><span>{cases.total?t("pagination.range", {value0: (page-1)*15+1, value1: Math.min(page*15,cases.total), value2: cases.total}):'0'}{t("pagination.cases_suffix")}<small>{t("selection.eligible_only")}</small></span><div><button className="icon-btn" aria-label={t("actions.previous_page")} disabled={page<=1} onClick={()=>setPage(page-1)}><ChevronLeft size={17}/></button><span>{t("pagination.page_prefix")}{page}</span><button className="icon-btn" aria-label={t("actions.next_page")} disabled={page*15>=cases.total} onClick={()=>setPage(page+1)}><ChevronRight size={17}/></button></div></div></section>}
+    {tab==='overview'&&<><div className="overview-columns"><section className="panel department-panel"><div className="panel-heading"><div><h2>{t("overview.intake_progress")}</h2><p>{t("overview.department_progress_caption")}</p></div><span className="chip">{dashboard.departments_sent||0}/{dashboard.departments_expected??0}{t("overview.sent_suffix")}</span></div><div className="department-list">{dashboard.by_department?.map((d:Item)=><div className="department-row" key={d.id}><span className="attendance-department-icon" aria-hidden="true"><Users size={17}/></span><div className="department-info"><div><strong>{d.name.replace(t("common.synthetic_suffix"),'')}</strong><span>{d.count}{t("common.cases_suffix")}</span></div><div className="progress-track"><span style={{width:(bootstrap.mail_provider==='outlook'?(d.received?100:0):Math.min(100,d.count/12*100))+'%'}}/></div></div><span className={'receive-label '+(d.received?'received':'')}>{d.received?<><Check size={13}/>{t("overview.received")}</>:t("overview.not_received")}</span></div>)}</div><div className="panel-foot"><span><Mail size={15}/>{dashboard.emails||0}{t("overview.received_email_suffix")}</span><button className="text-btn" onClick={()=>navigate('inbox')}>{t("actions.open_inbox")}<ArrowRight size={14}/></button></div></section><section className="panel attention-panel"><div className="panel-heading"><div><h2>{t("overview.attention")}</h2><p>{t("overview.next_steps")}</p></div></div><button className="attention-item" onClick={()=>showCases({assessment:'SUFFICIENT',status:'PENDING_REVIEW'})}><span className="attention-icon green"><CheckCircle2 size={20}/></span><div><strong>{dashboard.sufficient||0}{t("overview.sufficient_cases_suffix")}</strong><p>{t("overview.pending_sufficient_caption")}</p></div><ChevronRight size={17}/></button><button className="attention-item" onClick={()=>navigate('inbox')}><span className="attention-icon amber"><Inbox size={20}/></span><div><strong>{dashboard.email_errors||0}{t("overview.email_errors_suffix")}</strong><p>{t("overview.email_errors_caption")}</p></div><ChevronRight size={17}/></button><button className="attention-item" onClick={()=>showCases({category:'UNKNOWN'})}><span className="attention-icon violet"><CircleHelp size={20}/></span><div><strong>{dashboard.unknown||0}{t("overview.unknown_cases_suffix")}</strong><p>{t("overview.unknown_cases_caption")}</p></div><ChevronRight size={17}/></button><div className="demo-disclaimer"><ShieldCheck size={17}/><p>{t("overview.hr_confirmation_notice")}</p></div></section></div><section className="panel"><div className="panel-heading"><div><h2>{t("overview.period_cases")}</h2><p>{t("overview.source_trace_caption")}</p></div><button className="text-btn" onClick={()=>showCases()}>{t("actions.view_all")}<ArrowRight size={15}/></button></div><CaseTable categoryLabels={categoryLabels} items={cases.items.slice(0,5)} selected={[]} setSelected={()=>{}} openCase={openCase} compact/></section></>}
+    {tab==='cases'&&<section className="panel cases-panel"><div className="status-tabs">{[['',t("filters.all_cases")],['PENDING_REVIEW',t("filters.pending_review")],['NEEDS_INFO',t("hr.needs_info")],['CONFIRMED',t("hr.confirmed")]].map(([id,label])=><button key={id} className={status===id?'active':''} onClick={()=>setStatus(id)}>{label}{id===''&&<span>{dashboard.total||0}</span>}</button>)}</div><div className="table-toolbar"><div className="search-field"><Search size={17}/><input aria-label={t("filters.search_cases")} placeholder={t("filters.search_placeholder")} value={search} onChange={e=>setSearch(e.target.value)}/></div><div className="filter-group"><select aria-label={t("filters.category")} value={category} onChange={e=>setCategory(e.target.value)}><option value="">{t("filters.all_categories")}</option>{Object.entries(categoryLabels).map(([id,label])=><option key={id} value={id}>{String(label)}</option>)}</select><select aria-label={t("filters.assessment")} value={assessment} onChange={e=>setAssessment(e.target.value)}><option value="">{t("filters.all_assessments")}</option>{Object.entries(ASSESS).map(([id,label])=><option key={id} value={id}>{String(label)}</option>)}</select><select aria-label={t("filters.sort")} value={sort+':'+direction} onChange={e=>{const [s,d]=e.target.value.split(':');setSort(s);setDirection(d)}}><option value="code:asc">{t("sort.code_ascending")}</option><option value="code:desc">{t("sort.code_descending")}</option><option value="date:desc">{t("sort.newest_date")}</option><option value="employee:asc">{t("fields.employee_code")}</option><option value="status:asc">{t("fields.hr_status")}</option></select></div></div>{selected.length>0&&<div className="selection-bar"><span><CheckCheck size={16}/><strong>{selected.length}</strong>{t("selection.selected_cases_suffix")}</span><button className="btn primary small-btn" onClick={()=>setBulkModal(true)}>{t("actions.bulk_confirm")}</button><button className="text-btn" onClick={()=>setSelected([])}>{t("actions.clear_selection")}</button></div>}<CaseTable categoryLabels={categoryLabels} items={cases.items} selected={selected} setSelected={setSelected} openCase={openCase} onSelectAll={selectRows}/><div className="pagination"><span>{cases.total?t("pagination.range", {value0: (page-1)*15+1, value1: Math.min(page*15,cases.total), value2: cases.total}):'0'}{t("pagination.cases_suffix")}<small>{t("selection.eligible_only")}</small></span><div><button className="icon-btn" aria-label={t("actions.previous_page")} disabled={page<=1} onClick={()=>setPage(page-1)}><ChevronLeft size={17}/></button><span>{t("pagination.page_prefix")}{page}</span><button className="icon-btn" aria-label={t("actions.next_page")} disabled={page*15>=cases.total} onClick={()=>setPage(page+1)}><ChevronRight size={17}/></button></div></div></section>}
     {tab==='inbox'&&<section className="panel"><div className="panel-heading"><div><h2>{t("inbox.title")}<span className="count-label">{emails.length}</span></h2><p>{t("inbox.read_state_notice")}</p></div><button className="btn secondary small-btn" disabled={busy} onClick={()=>bootstrap.mail_provider==='outlook'?setMailboxOpen(true):action(sendDemo,t("notices.demo_mail_queued"))}><Mail size={15}/>{bootstrap.mail_provider==='outlook'?t("outlook.settings"):t("actions.send_demo_mail")}</button></div><div className="table-scroll"><table><thead><tr><th>{t("inbox.sender_column")}</th><th>{t("inbox.subject_column")}</th><th>File</th><th>{t("inbox.case_counts_column")}</th><th>{t("inbox.intake_column")}</th><th/></tr></thead><tbody>{emails.map(e=><tr key={e.id} onClick={async()=>{try{setEmailDetail(await api('/emails/'+e.id))}catch(err:any){setError(err.message)}}}><td><strong>{e.department.replace(t("common.synthetic_suffix"),'')}</strong><small>{e.sender}</small></td><td><strong className="email-subject">{e.subject}</strong><small>{dateTime(e.received_at)}</small><small className="cycle-reference">{cycleReference(e.cycle_start)}</small></td><td><span className="file-counter"><FileSpreadsheet size={16}/>{e.attachments.length} file</span></td><td><strong>{e.case_count??0}{t("inbox.case_count_separator")}{e.row_count}{t("common.rows_suffix")}</strong><small className={e.error_count?'red-text':''}>{e.error_count}{t("common.errors_suffix")}</small></td><td><Badge value={e.status} kind="intake"/></td><td><ChevronRight size={16}/></td></tr>)}</tbody></table></div>{!emails.length&&<Empty title={t("inbox.empty_title")}>{t("inbox.empty_hint")}</Empty>}</section>}
-    {tab==='rules'&&<><div className="info-banner"><BookOpen size={23}/><div><h3>{t("rules.demo_policy_notice")}</h3><p>{t("rules.change_warning")}</p></div></div><section className="panel"><div className="panel-heading"><div><h2>{t("rules.table_title")}</h2><p>{t("rules.confidence_notice")}</p></div></div><div className="rules-grid">{bootstrap.rules.map((r:Item)=><div className="rule-card" key={r.id}><Category value={r.category}/><small>{t("rules.version_prefix")}{r.settings.version}</small>{r.settings.description&&<p className="rule-description">{r.settings.description}</p>}{[['require_evidence',t("rules.evidence_present")],['require_readable_ocr',t("rules.readable_ocr")],['require_shift',t("rules.shift_present")],['require_punch',t("rules.punch_present")]].map(([key,label])=><div className="rule-line" key={key}><span>{label}</span><span className={r.settings[key]?'rule-yes':'muted'}>{r.settings[key]?<CheckCircle2 size={17}/>:<span>{t("rules.optional")}</span>}</span></div>)}<button className="btn secondary wide" onClick={()=>{setRuleDraft(r.settings);setRuleModal(r.category)}}>{t("actions.edit_rule")}</button></div>)}</div></section><div className="info-banner neutral"><Server size={23}/><div><h3>{t(bootstrap.mode==='GEMINI'?(bootstrap.jev_enabled?'rules.gemini_jev_notice':'rules.gemini_notice'):bootstrap.mode==='LOCAL_LLM'?'rules.local_llm_notice':'rules.rule_based_notice')}</h3><p>OCR: {bootstrap.ocr_enabled?t("rules.ocr_enabled_hint"):t("rules.ocr_disabled_hint")}{t("rules.processing_configuration_hint")}</p></div></div></>}
+    {tab==='rules'&&<>
+      <div className="info-banner"><BookOpen size={23}/><div><h3>{t("rules.demo_policy_notice")}</h3><p>{t("rules.change_warning")}</p></div></div>
+      <section className="panel rules-panel">
+        <div className="panel-heading">
+          <div><h2>{t("rules.table_title")}</h2><p>{t("rules.confidence_notice")}</p></div>
+          <button className="btn primary" disabled={busy} onClick={()=>openRuleEditor()}><Plus size={16}/>{t("actions.add_rule")}</button>
+        </div>
+        <div className="rules-grid">
+          {attendanceRules.map(rule=><div className="rule-card" key={rule.id}>
+            <Category value={rule.category} labels={categoryLabels}/>
+            <small>{t("rules.version_prefix")}{rule.settings.version}</small>
+            {rule.settings.description&&<p className="rule-description">{rule.settings.description}</p>}
+            {RULE_CONDITIONS.map(([key,label])=><div className="rule-line" key={key}>
+              <span>{t(label)}</span>
+              <span className={rule.settings[key]?'rule-yes':'muted'}>
+                {rule.settings[key]?<CheckCircle2 size={17}/>:t("rules.optional")}
+              </span>
+            </div>)}
+            <button className="btn secondary wide" disabled={busy} onClick={()=>openRuleEditor(rule)}>{t("actions.edit_rule")}</button>
+          </div>)}
+        </div>
+      </section>
+      <div className="info-banner neutral"><Server size={23}/><div><h3>{t(bootstrap.mode==='GEMINI'?(bootstrap.jev_enabled?'rules.gemini_jev_notice':'rules.gemini_notice'):bootstrap.mode==='LOCAL_LLM'?'rules.local_llm_notice':'rules.rule_based_notice')}</h3><p>OCR: {bootstrap.ocr_enabled?t("rules.ocr_enabled_hint"):t("rules.ocr_disabled_hint")}{t("rules.processing_configuration_hint")}</p></div></div>
+    </>}
     {tab==='jobs'&&<JobsQueue jobs={jobs} busy={busy} onRetry={id=>action(()=>api('/jobs/'+id+'/retry',{method:'POST'}),t('notices.job_retry_queued'))}/>}
     <footer className="page-footer"><span>TallyV <span>·</span>{t("app.footer_workspace")}</span><span><ShieldCheck size={13}/>{bootstrap.synthetic?t("app.synthetic_footer"):(bootstrap.mailbox?.transport==='composio'?t("composio.processing_notice"):t(bootstrap.mode==='GEMINI'?'rules.gemini_notice':'outlook.local_processing_notice'))}</span></footer></main></div>
     {detail&&<div className="modal-backdrop" onClick={()=>setDetail(null)}>
@@ -160,29 +434,111 @@ function App(){
               {t('actions.reanalyze')}
             </button>
           </div>
-          <button className="icon-btn" aria-label={t("actions.close_case")} onClick={()=>setDetail(null)}><X/></button>
-        </div><div className="drawer-content"><section className="detail-section"><div className="section-title"><Users size={17}/><h3>{t("cases.source_section")}</h3></div><div className="detail-fields">{[[t("calendar.cycle_filter"),cycleReference(detail.cycle_start)],[t("fields.employee_name"),detail.data.name],[t("fields.employee_code"),detail.employee_id],[t("fields.department"),detail.department],[t("fields.occurrence_date"),detail.data.date],[t("fields.shift"),detail.data.shift||t("common.not_provided")],[t("fields.missing_punch"),detail.data.punch||t("common.not_provided")]].map(([label,value])=><div key={label}><small>{label}</small><strong>{value}</strong></div>)}</div><div className="explanation"><small>{t("cases.original_explanation_caption")}</small><p>{detail.data.explanation||t("cases.explanation_not_provided")}</p></div><div className="source-ref"><Mail size={14}/><button className="text-btn" onClick={async()=>{setEmailDetail(await api('/emails/'+detail.source.email_id));setDetail(null)}}>Email #{detail.source.email_id}</button><ChevronRight size={12}/><span>File #{detail.source.attachment_id}</span><ChevronRight size={12}/><span>{detail.source.sheet}{t("source.row_separator")}{detail.source.row}</span></div></section>
+          <button className="icon-btn" aria-label={t("actions.close_case")} onClick={()=>setDetail(null)} autoFocus><X/></button>
+        </div>
+        <div className="case-section-links" aria-label={t('cases.detail_eyebrow')}>
+          {([
+            ['case-information','cases.source_section'], ['case-evidence','evidence.section_title'],
+            ['case-analysis','analysis.section_title'], ['case-review','review.hr_conclusion'],
+          ] as const).map(([id,label])=><button key={id} onClick={()=>document.getElementById(id)?.scrollIntoView({block:'start'})}>
+            {t(label)}
+          </button>)}
+        </div>
+        <div className="drawer-content"><section className="detail-section" id="case-information"><div className="section-title"><Users size={17}/><h3>{t("cases.source_section")}</h3></div><div className="detail-fields">{[[t("calendar.cycle_filter"),cycleReference(detail.cycle_start)],[t("fields.employee_name"),detail.data.name],[t("fields.employee_code"),detail.employee_id],[t("fields.department"),detail.department],[t("fields.occurrence_date"),detail.data.date],[t("fields.shift"),detail.data.shift||t("common.not_provided")],[t("fields.missing_punch"),detail.data.punch||t("common.not_provided")]].map(([label,value])=><div key={label}><small>{label}</small><strong>{value}</strong></div>)}</div><div className="explanation"><small>{t("cases.original_explanation_caption")}</small><p>{detail.data.explanation||t("cases.explanation_not_provided")}</p></div><div className="source-ref"><Mail size={14}/><button className="text-btn" onClick={async()=>{setEmailDetail(await api('/emails/'+detail.source.email_id));setDetail(null)}}>Email #{detail.source.email_id}</button><ChevronRight size={12}/><span>File #{detail.source.attachment_id}</span><ChevronRight size={12}/><span>{detail.source.sheet}{t("source.row_separator")}{detail.source.row}</span></div></section>
     {detail.proposed_count>0&&<section className="detail-section version-warning"><h3>{t("versions.count_prefix")}{detail.proposed_count}{t("versions.proposed_count_suffix")}</h3><p>{t("versions.review_notice")}</p>{detail.versions.filter((v:Item)=>v.status==='PROPOSED').map((v:Item)=><div className="proposed-version" key={v.id}><strong>{t("versions.proposal_prefix")}{v.id} · file #{v.attachment_id}{t("source.comma_row_separator")}{v.row_number}</strong><div className="version-diff">{Object.keys(v.normalized).filter(k=>v.normalized[k]!==detail.data[k]).map(k=><p key={k}><small>{({explanation:t("fields.explanation"),shift:t("fields.shift"),punch:t("fields.missing_punch"),date:t("fields.date")} as Item)[k]||k}</small><del>{detail.data[k]||t("common.empty_value")}</del><ins>{v.normalized[k]||t("common.empty_value")}</ins></p>)}</div><div className="evidence-thumbs">{v.evidence.map((e:Item)=><button key={e.id} onClick={()=>setZoom(e.url)}><img src={e.url} alt={t("versions.evidence_alt_prefix")+e.anchor}/></button>)}</div><label>{t("versions.decision_reason")}<input value={versionReason} onChange={e=>setVersionReason(e.target.value)} placeholder={t("versions.reason_placeholder")}/></label><div className="button-row"><button className="btn primary small-btn" disabled={busy||versionReason.trim().length<5} onClick={()=>action(async()=>{await api(`/cases/${detail.id}/versions/${v.id}`,{method:'POST',body:JSON.stringify({action:'APPLY',reason:versionReason})});await openCase(detail.id)},t("notices.version_applied"))}>{t("actions.apply_version")}</button><button className="btn secondary small-btn" disabled={busy||versionReason.trim().length<5} onClick={()=>action(async()=>{await api(`/cases/${detail.id}/versions/${v.id}`,{method:'POST',body:JSON.stringify({action:'REJECT',reason:versionReason})});await openCase(detail.id)},t("notices.version_rejected"))}>{t("actions.keep_current_source")}</button></div></div>)}</section>}
-    <section className="detail-section"><div className="section-title"><FileSpreadsheet size={17}/><h3>{t("evidence.section_title")}</h3><span className="count-label">{activeVersion?.evidence.length||0}</span></div>{!activeVersion?.evidence.length&&<p className="muted">{t("evidence.none")}</p>}<div className="evidence-grid">{activeVersion?.evidence.map((e:Item)=><article className="evidence-card" key={e.id}><button className="evidence-image" onClick={()=>setZoom(e.url)}><img src={e.url} alt={t("evidence.image_alt_prefix")+e.anchor}/><span><ZoomIn size={15}/>{t("actions.zoom_image")}</span></button><div className="evidence-description"><div><strong>{t("evidence.image_number_prefix")}{e.id} · {e.anchor}</strong><Badge value={e.ocr_status}/></div><EvidenceObservations evidence={e}/><details><summary>{t("evidence.ocr_content")}</summary><pre>{e.ocr_text||t("evidence.no_ocr_content")}</pre><small>{JSON.stringify(e.extracted)}</small></details><ul>{e.checks.map((c:string,i:number)=><li key={i} className={c.startsWith('CONFLICT')?'red-text':''}>{c.replace('CONFLICT: ','').replace('MISSING: ','')}</li>)}</ul></div></article>)}</div></section>
-    <section className="detail-section system-result"><div className="section-title"><Sparkles size={17}/><h3>{t("analysis.section_title")}</h3>{detail.analysis.status==='COMPLETED'&&<span className="chip">{processingLabel(detail.analysis.method)}</span>}</div>
-    {detail.analysis.status==='COMPLETED'?<><div className="button-row"><Category value={detail.analysis.category}/><Badge value={detail.analysis.assessment} kind="assessment"/>{detail.analysis.method==='GEMINI'&&(detail.analysis.extracted?.jev_verification||bootstrap.jev_enabled)&&<span className="chip">{t(({PASSED:'analysis.jev_passed',NEEDS_REVIEW:'analysis.jev_needs_review',UNAVAILABLE:'analysis.jev_unavailable'} as Item)[detail.analysis.extracted?.jev_verification?.status]||'analysis.jev_not_run')}</span>}</div><p>{detail.analysis.reason}</p>{detail.analysis.missing.length>0&&<div className="findings"><strong>{t("analysis.missing_information")}</strong><ul>{detail.analysis.missing.map((m:string)=><li key={m}>{m}</li>)}</ul></div>}{detail.analysis.conflicts.length>0&&<div className="findings red-text"><strong>{t("analysis.conflicts")}</strong><ul>{detail.analysis.conflicts.map((m:string)=><li key={m}>{m}</li>)}</ul></div>}<details><summary>{t("analysis.extracted_details")}</summary><pre>{JSON.stringify(detail.analysis.extracted,null,2)}</pre><small>{t("analysis.rule_version_prefix")}{detail.analysis.rules_version} {detail.analysis.model&&'· Model '+detail.analysis.model}</small></details></>:<><Badge value={detail.analysis.status}/><p>{t('analysis.manual_description')}</p></>}
+    <section className="detail-section" id="case-evidence"><div className="section-title"><FileSpreadsheet size={17}/><h3>{t("evidence.section_title")}</h3><span className="count-label">{activeVersion?.evidence.length||0}</span></div>{!activeVersion?.evidence.length&&<p className="muted">{t("evidence.none")}</p>}<div className="evidence-grid">{activeVersion?.evidence.map((e:Item)=><article className="evidence-card" key={e.id}><button className="evidence-image" onClick={()=>setZoom(e.url)}><img src={e.url} alt={t("evidence.image_alt_prefix")+e.anchor}/><span><ZoomIn size={15}/>{t("actions.zoom_image")}</span></button><div className="evidence-description"><div><strong>{t("evidence.image_number_prefix")}{e.id} · {e.anchor}</strong><Badge value={e.ocr_status}/></div><EvidenceObservations evidence={e}/><details><summary>{t("evidence.ocr_content")}</summary><pre>{e.ocr_text||t("evidence.no_ocr_content")}</pre><small>{JSON.stringify(e.extracted)}</small></details><ul>{e.checks.map((c:string,i:number)=><li key={i} className={c.startsWith('CONFLICT')?'red-text':''}>{c.replace('CONFLICT: ','').replace('MISSING: ','')}</li>)}</ul></div></article>)}</div></section>
+    <section className="detail-section system-result" id="case-analysis"><div className="section-title"><Sparkles size={17}/><h3>{t("analysis.section_title")}</h3>{detail.analysis.status==='COMPLETED'&&<span className="chip">{processingLabel(detail.analysis.method)}</span>}</div>
+    {detail.analysis.status==='COMPLETED'?<><div className="button-row"><Category value={detail.analysis.category} labels={categoryLabels}/><Badge value={detail.analysis.assessment} kind="assessment"/>{detail.analysis.method==='GEMINI'&&(detail.analysis.extracted?.jev_verification||bootstrap.jev_enabled)&&<span className="chip">{t(({PASSED:'analysis.jev_passed',NEEDS_REVIEW:'analysis.jev_needs_review',UNAVAILABLE:'analysis.jev_unavailable'} as Item)[detail.analysis.extracted?.jev_verification?.status]||'analysis.jev_not_run')}</span>}</div><p>{detail.analysis.reason}</p>{!!detail.analysis.extracted?.supporting_evidence_ids?.length&&<p className="muted">{t('analysis.supporting_evidence',{references:detail.analysis.extracted.supporting_evidence_ids.map((id:number)=>`#${id}`).join(', ')})}</p>}{detail.analysis.missing.length>0&&<div className="findings"><strong>{t("analysis.missing_information")}</strong><ul>{detail.analysis.missing.map((m:string)=><li key={m}>{m}</li>)}</ul></div>}{detail.analysis.conflicts.length>0&&<div className="findings red-text"><strong>{t("analysis.conflicts")}</strong><ul>{detail.analysis.conflicts.map((m:string)=><li key={m}>{m}</li>)}</ul></div>}<details><summary>{t("analysis.extracted_details")}</summary><pre>{JSON.stringify(detail.analysis.extracted,null,2)}</pre><small>{t("analysis.rule_version_prefix")}{detail.analysis.rules_version} {detail.analysis.model&&'· Model '+detail.analysis.model}</small></details></>:<><Badge value={detail.analysis.status}/><p>{t('analysis.manual_description')}</p></>}
     {detail.analysis.error&&<div className="alert error">{detail.analysis.error}</div>}
     </section>
-    <section className="detail-section hr-result"><div className="section-title"><ShieldCheck size={18}/><h3>{t("review.hr_conclusion")}</h3></div><p>{t("review.independent_conclusion_notice")}</p><div className="form-grid"><label>{t("review.hr_category")}<select value={hrCategory} onChange={e=>setHrCategory(e.target.value)}>{Object.entries(CAT).map(([key,value])=><option key={key} value={key}>{String(value)}</option>)}</select></label><label>{t("review.status")}<select value={hrStatus} onChange={e=>setHrStatus(e.target.value)}>{Object.entries(HR).filter(([key])=>key!=='SUPERSEDED').map(([key,value])=><option key={key} value={key}>{String(value)}</option>)}</select></label></div><label>{t("review.note")}<textarea value={hrNote} onChange={e=>setHrNote(e.target.value)} placeholder={t("review.note_placeholder")} rows={3}/></label>{hrStatus==='CONFIRMED'&&!detail.bulk_eligible&&detail.hr_status!=='CONFIRMED'&&<div className="exception-review"><label className="checkbox-label"><input type="checkbox" checked={ack} onChange={e=>setAck(e.target.checked)}/>{t("review.exception_acknowledgement")}</label><label>{t("review.exception_reason")}<textarea value={override} onChange={e=>setOverride(e.target.value)} placeholder={t("review.exception_reason_placeholder")}/></label></div>}{detail.confirmed_at&&<p className="muted">{t("review.confirmed_by_prefix")}{detail.confirmed_by} · {dateTime(detail.confirmed_at)}</p>}<button className="btn primary" disabled={busy||detail.proposed_count>0&&hrStatus==='CONFIRMED'} onClick={saveReview}><Check size={16}/>{t("actions.save_review")}</button></section>
+    <section className="detail-section hr-result" id="case-review"><div className="section-title"><ShieldCheck size={18}/><h3>{t("review.hr_conclusion")}</h3></div><p>{t("review.independent_conclusion_notice")}</p><div className="form-grid"><label>{t("review.hr_category")}<select value={hrCategory} onChange={e=>setHrCategory(e.target.value)}>{Object.entries(categoryLabels).map(([key,value])=><option key={key} value={key}>{String(value)}</option>)}</select></label><label>{t("review.status")}<select value={hrStatus} onChange={e=>setHrStatus(e.target.value)}>{Object.entries(HR).filter(([key])=>key!=='SUPERSEDED').map(([key,value])=><option key={key} value={key}>{String(value)}</option>)}</select></label></div><label>{t("review.note")}<textarea value={hrNote} onChange={e=>setHrNote(e.target.value)} placeholder={t("review.note_placeholder")} rows={3}/></label>{hrStatus==='CONFIRMED'&&!detail.bulk_eligible&&detail.hr_status!=='CONFIRMED'&&<div className="exception-review"><label className="checkbox-label"><input type="checkbox" checked={ack} onChange={e=>setAck(e.target.checked)}/>{t("review.exception_acknowledgement")}</label><label>{t("review.exception_reason")}<textarea value={override} onChange={e=>setOverride(e.target.value)} placeholder={t("review.exception_reason_placeholder")}/></label></div>}{detail.confirmed_at&&<p className="muted">{t("review.confirmed_by_prefix")}{detail.confirmed_by} · {dateTime(detail.confirmed_at)}</p>}<button className="btn primary" disabled={busy||detail.proposed_count>0&&hrStatus==='CONFIRMED'} onClick={saveReview}><Check size={16}/>{t("actions.save_review")}</button></section>
     <section className="detail-section"><div className="section-title"><Clock3 size={17}/><h3>{t("audit.section_title")}</h3></div>{!detail.audit.length&&<p className="muted">{t("audit.empty")}</p>}{detail.audit.map((a:Item)=><div className="audit-item" key={a.id}><span className="audit-dot"/><div><strong>{({HR_SUBMISSION_REQUESTED:t("integration.submission_requested_audit"),HR_SUBMISSION_APPLIED:t("integration.submission_applied_audit"),HR_SUBMISSION_CANCELLED:t("integration.submission_cancelled_audit"),HR_SUBMISSION_FAILED:t("integration.submission_failed_audit"),HR_SUBMISSION_RETRIED:t("integration.submission_retried_audit"),HR_REVIEW:t("audit.hr_review"),BULK_CONFIRM:t("actions.bulk_confirm"),VERSION_PROPOSED:t("audit.version_proposed"),VERSION_APPLY:t("actions.apply_version"),VERSION_REJECT:t("audit.version_rejected"),REANALYZE:t("actions.reanalyze"),RULE_CHANGED:t("audit.rule_changed")} as Item)[a.action]||a.action}</strong><small>{a.actor} · {dateTime(a.created_at)}</small><p>{a.reason}</p><details><summary>{t("audit.view_changes")}</summary><pre>{JSON.stringify({before:a.before,after:a.after},null,2)}</pre></details></div></div>)}<details><summary>{t("versions.history_prefix")}{detail.versions.length})</summary>{detail.versions.map((v:Item)=><div className="version-history" key={v.id}><span>#{v.id} · file #{v.attachment_id}{t("source.row_separator")}{v.row_number}</span><Badge value={v.status}/><details><summary>{t("versions.original_data")}</summary><pre>{JSON.stringify(v.raw,null,2)}</pre></details></div>)}</details></section></div></section></div>}
     {emailDetail&&<div className="modal-backdrop" onClick={()=>setEmailDetail(null)}><section className="detail-drawer email-drawer" role="dialog" aria-modal="true" aria-label={t("inbox.detail_label")} onClick={e=>e.stopPropagation()}><div className="drawer-header"><div><span className="eyebrow">{t("inbox.detail_eyebrow")}{emailDetail.id}</span><h2>{t("inbox.intake_detail_title")}</h2></div><button className="icon-btn" aria-label={t("actions.close_email")} onClick={()=>setEmailDetail(null)}><X/></button></div><div className="drawer-content"><h3>{emailDetail.subject}</h3><p className="cycle-reference">{cycleReference(emailDetail.cycle_start)}</p><Badge value={emailDetail.status} kind="intake"/><p className="muted">{emailDetail.sender} → {emailDetail.recipient}</p><p className="muted">{t("inbox.received_prefix")}{dateTime(emailDetail.received_at)}{t("inbox.ingested_separator")}{dateTime(emailDetail.ingested_at)}</p><details><summary>{t("source.reference")}</summary><pre>{emailDetail.source_id}{'\n'}{emailDetail.message_id}</pre></details><pre className="email-body">{emailDetail.body}</pre>{emailDetail.error&&<div className="alert error">{emailDetail.error}</div>}<h3>{t("inbox.attachments")}</h3>{emailDetail.attachments.map((a:Item)=><div className="attachment-card" key={a.id}><FileSpreadsheet size={25}/><div><a href={'/api/attachments/'+a.id}>{a.name}</a><small>{Math.round(a.size/1024)} KB · {a.sha256.slice(0,12)}…</small>{a.error&&<p className="red-text">{a.error}</p>}{a.duplicate_of&&<p>{t("inbox.duplicate_reference_prefix")}{a.duplicate_of}</p>}</div><Badge value={a.status} kind="intake"/></div>)}{!emailDetail.attachments.length&&<p className="muted">{t("inbox.no_attachments")}</p>}<button className="btn secondary" disabled={busy} onClick={()=>action(()=>api('/emails/'+emailDetail.id+'/retry',{method:'POST'}),t("notices.email_retry_queued"))}><RefreshCw size={15}/>{t("actions.retry_intake")}</button>{emailDetail.batches.map((b:Item)=><section className="detail-section" key={b.id}><h3>{t("inbox.batch_reconciliation_prefix")}{b.attachment_id} · {b.sheet}</h3><div className="batch-counts"><span>{b.row_count}{t("inbox.source_rows_suffix")}</span><span>{b.imported_count}{t("inbox.imported_rows_suffix")}</span><span>{b.duplicate_count}{t("inbox.duplicate_rows_suffix")}</span><span>{b.error_count}{t("inbox.error_rows_suffix")}</span></div>{b.errors.map((e:Item,i:number)=><div className="row-error" key={i}><strong>{e.row?t("source.row_prefix")+e.row:t("inbox.file_or_anchor_error")}</strong><p>{e.codes.join('; ')}</p>{e.raw&&<details><summary>{t("source.raw_data")}</summary><pre>{JSON.stringify(e.raw,null,2)}</pre></details>}</div>)}</section>)}<h3>{t("inbox.related_cases")}</h3><div className="email-cases">{emailDetail.cases.map((c:Item,i:number)=><button className="btn secondary small-btn" key={i} onClick={()=>openCase(c.id)}>{c.code}{t("source.row_separator")}{c.row}<ArrowRight size={13}/></button>)}</div></div></section></div>}
     {bulkModal&&<div className="modal-backdrop centered" onClick={()=>setBulkModal(false)}><section className="confirm-modal" role="dialog" aria-modal="true" aria-label={t("actions.bulk_confirm")} onClick={e=>e.stopPropagation()}><span className="confirm-icon"><CheckCheck size={26}/></span><h2>{t("bulk.confirm_prefix")}{selected.length}{t("bulk.case_count_suffix")}</h2><p>{t("bulk.confirmation_notice")}{user.username}.</p><div className="info-banner neutral"><ShieldCheck size={20}/><p>{t("bulk.no_sap_notice")}</p></div><div className="button-row"><button className="btn secondary" onClick={()=>setBulkModal(false)}>{t("actions.go_back")}</button><button className="btn primary" disabled={busy} onClick={()=>action(async()=>{await api('/cases/bulk-confirm',{method:'POST',body:JSON.stringify({ids:selected,acknowledged:true})});setSelected([]);setBulkModal(false)},t("notices.bulk_confirmed"))}>{t("bulk.confirm_prefix")}{selected.length}{t("common.cases_suffix")}</button></div></section></div>}
-    {ruleModal&&<div className="modal-backdrop centered" onClick={()=>setRuleModal('')}><section className="confirm-modal" role="dialog" aria-modal="true" aria-label={t("rules.dialog_label")} onClick={e=>e.stopPropagation()}><h2>{t("rules.dialog_title")}</h2><Category value={ruleModal}/>{[['require_evidence',t("rules.require_evidence")],['require_readable_ocr',t("rules.require_readable_ocr")],['require_shift',t("rules.require_shift")],['require_punch',t("rules.require_punch")]].map(([key,label])=><label className="checkbox-label rule-toggle" key={key}><input type="checkbox" checked={!!ruleDraft[key]} onChange={e=>setRuleDraft({...ruleDraft,[key]:e.target.checked})}/>{label}</label>)}<label className="rule-description-field">{t("rules.description_label")}<textarea rows={4} maxLength={2000} value={ruleDraft.description??''} placeholder={t("rules.description_placeholder")} onChange={e=>setRuleDraft({...ruleDraft,description:e.target.value})}/><small>{t("rules.description_hint")}</small></label><p>{t("rules.reanalysis_warning")}</p><div className="button-row"><button className="btn secondary" onClick={()=>setRuleModal('')}>{t("actions.cancel")}</button><button className="btn primary" disabled={busy} onClick={()=>action(async()=>{const {version,...payload}=ruleDraft;await api('/rules/'+ruleModal,{method:'PUT',body:JSON.stringify({...payload,description:payload.description??''})});setRuleModal('')},t("notices.rules_updated"))}>{t("actions.save_and_reanalyze")}</button></div></section></div>}
+    {ruleModal&&<div className="modal-backdrop centered" onClick={()=>setRuleModal('')}>
+      <section className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="rule-dialog-title" onClick={e=>e.stopPropagation()}>
+        <h2 id="rule-dialog-title">{ruleDialogTitle}</h2>
+        <form onSubmit={saveRule}>
+          <label className="rule-description-field">{t("rules.label")}
+            <input required maxLength={80} value={ruleDraft.label} onChange={e=>setRuleDraft({...ruleDraft,label:e.target.value})}/>
+          </label>
+          <label className="rule-description-field">{t("rules.description_label")}
+            <textarea required={creatingRule} rows={4} maxLength={2000} value={ruleDraft.description??''} placeholder={t("rules.description_placeholder")} onChange={e=>setRuleDraft({...ruleDraft,description:e.target.value})}/>
+            <small>{t("rules.description_hint")}</small>
+          </label>
+          {ruleModal!=='UNKNOWN'&&<label className="rule-description-field">{t("rules.keywords")}
+            <textarea rows={3} value={ruleDraft.keywords} onChange={e=>setRuleDraft({...ruleDraft,keywords:e.target.value})}/>
+            <small>{t(invalidRuleKeywords?"rules.keywords_limit":"rules.keywords_hint")}</small>
+          </label>}
+          {RULE_CONDITIONS.map(([key,,label])=><label className="checkbox-label rule-toggle" key={key}>
+            <input type="checkbox" checked={ruleDraft[key]} onChange={e=>setRuleDraft({...ruleDraft,[key]:e.target.checked})}/>{t(label)}
+          </label>)}
+          <p>{t(creatingRule?"rules.create_notice":"rules.reanalysis_warning")}</p>
+          <div className="button-row">
+            <button type="button" className="btn secondary" onClick={()=>setRuleModal('')}>{t("actions.cancel")}</button>
+            <button type="submit" className="btn primary" disabled={busy||invalidRuleKeywords||!ruleDraft.label.trim()||(creatingRule&&!ruleDraft.description?.trim())}>{t("actions.save_and_reanalyze")}</button>
+          </div>
+        </form>
+      </section>
+    </div>}
     {mailboxOpen&&<OutlookSettings api={api} departments={bootstrap.departments} refresh={refresh} onClose={()=>setMailboxOpen(false)} onView={page=>{setTab(page);setMailboxOpen(false)}}/>}
     {error&&(detail||emailDetail||bulkModal||ruleModal)&&<div className="floating-error" role="alert"><AlertCircle size={17}/><span>{error}</span><button aria-label={t("actions.dismiss_error")} onClick={()=>setError('')}><X size={17}/></button></div>}{zoom&&<div className="zoom-overlay" onClick={()=>setZoom('')} role="dialog" aria-label={t("evidence.zoom_dialog_label")}><button className="icon-btn" aria-label={t("actions.close_image")}><X/></button><img src={zoom} alt={t("evidence.zoom_alt")}/></div>}
   </div>
 }
-function CaseTable({items,selected,setSelected,openCase,compact=false,onSelectAll}:{items:Item[],selected:number[],setSelected:(ids:number[])=>void,openCase:(id:number)=>void,compact?:boolean,onSelectAll?:(v:boolean)=>void}){
- const eligible=items.filter(c=>c.bulk_eligible)
- return <><div className="table-scroll"><table className="case-table"><thead><tr>{!compact&&<th className="checkbox-cell"><input type="checkbox" aria-label={t("selection.select_eligible")} checked={eligible.length>0&&eligible.every(c=>selected.includes(c.id))} disabled={!eligible.length} onChange={e=>onSelectAll?.(e.target.checked)}/></th>}<th>{t("cases.employee_column")}</th><th>{t("cases.department_date_column")}</th>{!compact&&<th>{t("fields.explanation")}</th>}<th>{t("cases.suggested_category_column")}</th><th>{t("fields.assessment")}</th>{!compact&&<th>{t("fields.images")}</th>}<th>{t("fields.hr_status")}</th><th/></tr></thead><tbody>{items.map(c=><tr key={c.id} onClick={()=>openCase(c.id)} className={selected.includes(c.id)?'selected-row':''}>{!compact&&<td className="checkbox-cell" onClick={e=>e.stopPropagation()}><input type="checkbox" aria-label={t("selection.select_prefix")+c.code} disabled={!c.bulk_eligible} checked={selected.includes(c.id)} title={c.bulk_eligible?t("selection.eligible_title"):t("selection.ineligible_title")} onChange={e=>setSelected(e.target.checked?[...selected,c.id]:selected.filter(id=>id!==c.id))}/></td>}<td><strong className="case-code">{c.code}{c.proposed_count>0&&<span className="version-indicator" title={t("versions.new_version_hint")}/>}</strong><span className="employee-name">{c.data.name}</span><small>{c.employee_id} · <span className="source-mini">Email #{c.source.email_id}</span></small></td><td><strong className="department-name">{c.department.replace(t("common.synthetic_suffix"),'')}</strong><small>{c.data.date}</small><small className="cycle-reference">{cycleReference(c.cycle_start)}</small></td>{!compact&&<td><span className="explanation-preview" title={c.data.explanation}>{c.data.explanation||t("cases.no_explanation")}</span></td>}<td>{c.analysis.status==='COMPLETED'?<><Category value={c.analysis.category}/><small className="method-caption">{processingLabel(c.analysis.method)}</small></>:<Badge value={c.analysis.status}/>}</td><td>{c.analysis.status==='COMPLETED'?<Badge value={c.analysis.assessment} kind="assessment"/>:<span className="muted">—</span>}</td>{!compact&&<td><span className="evidence-count"><FileSpreadsheet size={14}/>{c.evidence_count}</span></td>}<td><Badge value={c.hr_status}/></td><td><ChevronRight size={16}/></td></tr>)}</tbody></table></div>{!items.length&&<Empty title={t("cases.empty_title")}/>}</>
+function CaseTable({items,selected,setSelected,openCase,compact=false,onSelectAll,categoryLabels}:{
+  categoryLabels:Record<string, string>; items:Item[]; selected:number[]; setSelected:(value:number[])=>void;
+  openCase:(id:number)=>void; compact?:boolean; onSelectAll?:(checked:boolean)=>void
+}) {
+  const eligible = items.filter(item=>item.bulk_eligible)
+  return <>
+    <div className="table-scroll">
+      <table className="case-table">
+        <caption className="sr-only">{t('nav.cases')}</caption>
+        <thead><tr>
+          {!compact&&<th scope="col" className="checkbox-cell"><input type="checkbox" aria-label={t('selection.select_eligible')}
+            checked={eligible.length>0&&eligible.every(item=>selected.includes(item.id))}
+            disabled={!eligible.length} onChange={e=>onSelectAll?.(e.target.checked)}/></th>}
+          <th scope="col">{t('cases.employee_column')}</th>
+          <th scope="col">{t('cases.department_date_column')}</th>
+          {!compact&&<th scope="col">{t('fields.explanation')}</th>}
+          <th scope="col">{t('cases.suggested_category_column')}</th>
+          <th scope="col">{t('fields.assessment')}</th>
+          {!compact&&<th scope="col">{t('fields.images')}</th>}
+          <th scope="col">{t('fields.hr_status')}</th>
+          <th scope="col"><span className="sr-only">{t('cases.detail_eyebrow')}</span></th>
+        </tr></thead>
+        <tbody>{items.map(item=><tr key={item.id} onClick={()=>openCase(item.id)}
+          className={selected.includes(item.id)?'selected-row':''}>
+          {!compact&&<td className="checkbox-cell" onClick={e=>e.stopPropagation()}><input type="checkbox"
+            aria-label={t('selection.select_prefix')+item.code} checked={selected.includes(item.id)}
+            disabled={!item.bulk_eligible} title={item.bulk_eligible?t('selection.eligible_title'):t('selection.ineligible_title')}
+            onChange={e=>setSelected(e.target.checked?[...selected,item.id]:selected.filter(id=>id!==item.id))}/></td>}
+          <td>
+            <button type="button" className="case-code" onClick={e=>{e.stopPropagation();openCase(item.id)}}>
+              {item.code}{item.proposed_count>0&&<span className="version-indicator"/>}
+            </button>
+            <span className="employee-name">{item.data.name}</span>
+            <small>{item.employee_id}{item.source.email_id&&<> · <span className="source-mini">Email #{item.source.email_id}</span></>}</small>
+          </td>
+          <td><strong className="department-name">{item.department.replace(t('common.synthetic_suffix'),'')}</strong>
+            <small>{item.data.date}</small><small className="cycle-reference">{cycleReference(item.cycle_start)}</small></td>
+          {!compact&&<td><span className="explanation-preview" title={item.data.explanation}>
+            {item.data.explanation||t('cases.no_explanation')}</span></td>}
+          <td>{item.analysis.status==='COMPLETED'?<><Category value={item.analysis.category} labels={categoryLabels}/>
+            <small className="method-caption">{processingLabel(item.analysis.method)}</small></>:<Badge value={item.analysis.status}/>}</td>
+          <td>{item.analysis.status==='COMPLETED'?<Badge value={item.analysis.assessment} kind="assessment"/>:<span className="muted">—</span>}</td>
+          {!compact&&<td><span className="evidence-count"><FileSpreadsheet size={14}/>{item.evidence_count}</span></td>}
+          <td><Badge value={item.hr_status}/></td>
+          <td><ChevronRight size={16} aria-hidden="true"/></td>
+        </tr>)}</tbody>
+      </table>
+    </div>
+    {!items.length&&<Empty title={t('cases.empty_title')}/>}
+  </>
 }
 
-document.title = t('app.document_title')
+const isEmployeePortal = window.location.pathname.replace(/\/$/, '') === '/employee'
+document.title = isEmployeePortal ? 'Tra cứu quy định · TallyV' : t('app.document_title')
 document.querySelector('meta[name="description"]')?.setAttribute('content', t('app.description'))
 
-createRoot(document.getElementById('root')!).render(<App/> )
+createRoot(document.getElementById('root')!).render(isEmployeePortal ? <EmployeePortal/> : <App/>)

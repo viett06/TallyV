@@ -39,6 +39,7 @@ class ReviewPeriodView(View):
 class RuleView(View):
     id: int
     category: str
+    label: str
     settings: dict[str, Any]
 
 

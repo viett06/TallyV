@@ -5,6 +5,7 @@ os.environ["DEMO_PASSWORD"] = "Test-demo-password"
 os.environ["DATABASE_URL"] = "sqlite://"
 os.environ["OCR_ENABLED"] = "false"
 os.environ["OCR_BACKEND"] = "tesseract"
+os.environ["EVIDENCE_HISTORY_ENABLED"] = "false"
 os.environ["EVIDENCE_VISION_ENABLED"] = "false"
 os.environ["EVIDENCE_VISION_PROVIDER"] = "ollama"
 os.environ["EVIDENCE_VISION_CLOUD_MODEL"] = "qwen3-vl-8b-instruct"
@@ -19,6 +20,7 @@ os.environ["JEV_ENABLED"] = "false"
 os.environ["JEV_PROVIDER"] = "typesafe"
 os.environ["JEV_API_KEY"] = ""
 os.environ["ASSISTANT_PROCESSING_MODE"] = "RULE_BASED"
+os.environ["ASSISTANT_HYBRID_SHEET_PROVIDER"] = "ollama"
 
 import pytest
 from fastapi.testclient import TestClient

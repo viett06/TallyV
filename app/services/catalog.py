@@ -17,6 +17,7 @@ from app.services.review_calendar import (
     period_bounds,
     period_schedule,
 )
+from app.services.rules import rule_view
 
 
 def ensure_period(db: Session, period_id: str) -> ReviewPeriod:
@@ -71,7 +72,7 @@ def bootstrap(db: Session) -> dict:
         "mode": settings.processing_mode,
         "jev_enabled": settings.jev_enabled,
         "ocr_enabled": settings.ocr_enabled,
-        "rules": [record(x) for x in catalog_crud.list_rules(db)],
+        "rules": [rule_view(rule) for rule in catalog_crud.list_rules(db)],
         "synthetic": settings.mail_provider == "mailpit",
     }
 

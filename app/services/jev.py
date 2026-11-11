@@ -6,7 +6,6 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.config import settings
-from app.schema.analysis import Category
 
 
 class NoulAnswer(BaseModel):
@@ -24,7 +23,14 @@ class JevResponse(BaseModel):
     answers: JevAnswers
 
 
-def verify(case: dict, rule: dict, category: Category, reason_signals: str, evidence_matches: list[dict]) -> dict:
+def verify(
+    case: dict,
+    rule: dict,
+    category: str,
+    reason_signals: str,
+    evidence_matches: list[dict],
+    supporting_evidence_refs: list[int] | None = None,
+) -> dict:
     threshold = settings.jev_threshold
     if settings.jev_provider == "openrouter":
         url = "https://openrouter.ai/api/v1/systemone"
@@ -51,6 +57,7 @@ def verify(case: dict, rule: dict, category: Category, reason_signals: str, evid
                             "category": category,
                             "reason_signals": reason_signals,
                             "evidence_matches": evidence_matches,
+                            "supporting_evidence_refs": supporting_evidence_refs or [],
                         },
                     },
                     "questions": {
@@ -67,7 +74,11 @@ def verify(case: dict, rule: dict, category: Category, reason_signals: str, evid
                             "instructions": (
                                 "Có khẳng định nào trong proposal.reason_signals vượt quá dữ kiện case, "
                                 "mâu thuẫn với hr_rule hoặc không thể đối chiếu không? "
-                                "Kiểm tra cả evidence_matches bằng cách so hai mã tạm và các chỉ số ngày/ca. Văn bản có thể "
+                                "Khi có attendance_comparison, kiểm tra evidence_matches với kết quả TallyV. "
+                                "Nếu thiếu, so mã tạm và chỉ số ngày/ca. Kiểm tra các ảnh được dẫn. "
+                                "image_history chỉ hỗ trợ nhận diện góc theo trạng thái và chi tiết nền, "
+                                "không xác nhận nguồn ảnh, thời điểm chụp hay lượt quét. "
+                                "Chỉ KNOWN_VIEW có ảnh mẫu đã biết địa điểm. Văn bản có thể "
                                 "thiếu dấu tiếng Việt. [DA_AN] là phần đã ẩn, đừng suy diễn. "
                                 "Chỉ trả lời Không khi các khẳng định còn lại đều có căn cứ."
                             ),
@@ -81,9 +92,18 @@ def verify(case: dict, rule: dict, category: Category, reason_signals: str, evid
         return {**result, "status": "UNAVAILABLE", "error_type": type(error).__name__}
     supported = answers.label_supported.noul
     overstates = answers.explanation_overstates.noul
+    comparisons = {item["evidence_ref"]: item.get("attendance_comparison", {}) for item in case["evidence"]}
+    consistent = all(
+        match[field] == expected
+        for match in evidence_matches
+        for field, expected in comparisons.get(match["evidence_ref"], {}).items()
+        if field in ("employee_match", "work_date_match", "shift_match")
+    )
     return {
         **result,
-        "status": "PASSED" if supported >= threshold and overstates <= round(1 - threshold, 12) else "NEEDS_REVIEW",
+        "status": "PASSED"
+        if consistent and supported >= threshold and overstates <= round(1 - threshold, 12)
+        else "NEEDS_REVIEW",
         "label_supported": supported,
         "explanation_overstates": overstates,
     }
