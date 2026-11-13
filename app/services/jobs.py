@@ -12,6 +12,8 @@ from app.models import AuditLog, User
 from app.schema.cases import CaseFilters
 from app.schema.jobs import DemoRequest, MailboxScanRequest
 from app.services import mailbox
+from app.services.evidence_privacy import plan_batch
+from app.services.image_background import defer
 from app.services.review_calendar import business_today, default_cycle, parse_cycle, payroll_period
 
 
@@ -20,8 +22,8 @@ def analysis_status(db: Session, selection: CaseFilters) -> dict:
     sync_job = job_crud.get_by_key(db, "mailbox-sync")
     emails = email_crud.list_emails(db, selection.period, selection.department, selection.cycle, selection.source)
     return {
-        "waiting": sum(a.status == "NOT_STARTED" for a in results),
-        "processing": sum(a.status in {"PENDING", "RUNNING"} for a in results),
+        "waiting": sum(a.status in {"NOT_STARTED", "MANUAL_REVIEW"} for a in results),
+        "processing": sum(a.status in {"WAITING_PRIVACY", "PENDING", "RUNNING"} for a in results),
         "completed": sum(a.status == "COMPLETED" for a in results),
         "failed": sum(a.status == "FAILED" for a in results),
         "importing": bool(sync_job and sync_job.status in {"PENDING", "RUNNING"})
@@ -29,22 +31,26 @@ def analysis_status(db: Session, selection: CaseFilters) -> dict:
     }
 
 
-def queue_analysis(db: Session, selection: CaseFilters, user: User) -> dict:
+def queue_analysis(db: Session, selection: CaseFilters, user: User, background_tasks=None) -> dict:
     if analysis_status(db, selection)["importing"]:
         raise AppError(409, message("analysis.intake_in_progress"))
     queued = 0
+    privacy_versions = []
     rows = case_crud.list_rows(db, selection)
     cases = {case.id: case for case in case_crud.list_for_update(db, [row[0].id for row in rows])}
     for result in case_crud.list_analysis_results(db, selection, for_update=True, locked_case_ids=list(cases)):
-        if result.status not in {"NOT_STARTED", "FAILED"}:
+        if result.status not in {"NOT_STARTED", "FAILED", "MANUAL_REVIEW"}:
             continue
         version = case_crud.get_version(db, result.version_id)
         case = cases[version.case_id]
+        if result.status == "MANUAL_REVIEW" and case.hr_status == "CONFIRMED":
+            continue  # A completed human review is reopened only by explicit reanalysis.
         before = {"hr_status": case.hr_status, "analysis_status": result.status}
         if case.active_version_id == result.version_id:
             case.hr_status, case.confirmed_by, case.confirmed_at = "PENDING_REVIEW", None, None
         result.status, result.assessment, result.error = "PENDING", "NOT_EVALUATED", None
-        job_crud.enqueue(db, "ANALYZE", f"analysis:{result.version_id}", {"version_id": result.version_id})
+        privacy_versions.append(result.version_id)
+        result.status = "WAITING_PRIVACY"
         db.add(
             AuditLog(
                 case_id=case.id,
@@ -56,7 +62,10 @@ def queue_analysis(db: Session, selection: CaseFilters, user: User) -> dict:
             )
         )
         queued += 1
+    batch = plan_batch(db, privacy_versions, analyze=True) if privacy_versions else None
     db.commit()
+    if batch:
+        defer(db, batch, background_tasks)
     return {"queued": queued}
 
 
@@ -67,6 +76,20 @@ def sync(db: Session, body: MailboxScanRequest | None = None) -> dict:
     job = job_crud.enqueue(db, "SYNC", "mailbox-sync", {"mode": body.mode, "lookback_days": body.lookback_days})
     db.commit()
     return {"job_id": job.id, "status": job.status}
+
+
+def queue_privacy(db: Session, selection: CaseFilters, user: User, background_tasks=None) -> dict:
+    version_ids = [
+        result.version_id
+        for result in case_crud.list_analysis_results(db, selection)
+        if case_crud.list_evidence(db, result.version_id)
+    ]
+    if not version_ids:
+        return {"queued": 0}
+    batch = plan_batch(db, version_ids)
+    db.commit()
+    defer(db, batch, background_tasks)
+    return {"queued": len(version_ids)}
 
 
 def demo(db: Session, body: DemoRequest) -> dict:

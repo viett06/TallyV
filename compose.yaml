@@ -55,8 +55,6 @@ services:
       S3_ENDPOINT_URL: "${S3_DOCKER_ENDPOINT_URL-http://minio:9000}"
       MINIO_ROOT_USER: ""
       MINIO_ROOT_PASSWORD: ""
-      OCR_ENABLED: "${OCR_ENABLED:-true}"
-      OCR_API_URL: "${OCR_DOCKER_API_URL:-http://host.docker.internal:8001}"
       HR_MOCK_URL: http://hr-mock:8010
       ASSISTANT_OLLAMA_URL: "${ASSISTANT_DOCKER_OLLAMA_URL:-http://host.docker.internal:11435}"
     command: ["sh", "-c", "alembic upgrade head && python -m scripts.seed_catalog && uvicorn main:app --host 0.0.0.0 --port 8000 --no-access-log"]
@@ -64,7 +62,7 @@ services:
       db: {condition: service_healthy}
       minio-init: {condition: service_completed_successfully}
     ports: ["127.0.0.1:${TALLYV_API_HOST_PORT:-8000}:8000"]
-    volumes: ["file_data:/app/data"]
+    volumes: ["file_data:/app/data", "./image-preprocessing/config:/app/image-preprocessing/config:ro"]
     networks: [internal, access]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
@@ -81,15 +79,13 @@ services:
       S3_ENDPOINT_URL: "${S3_DOCKER_ENDPOINT_URL-http://minio:9000}"
       MINIO_ROOT_USER: ""
       MINIO_ROOT_PASSWORD: ""
-      OCR_ENABLED: "${OCR_ENABLED:-true}"
-      OCR_API_URL: "${OCR_DOCKER_API_URL:-http://host.docker.internal:8001}"
       HR_MOCK_URL: http://hr-mock:8010
       ASSISTANT_OLLAMA_URL: "${ASSISTANT_DOCKER_OLLAMA_URL:-http://host.docker.internal:11435}"
     command: ["python", "-m", "app.worker"]
     depends_on:
       api: {condition: service_healthy}
       minio-init: {condition: service_completed_successfully}
-    volumes: ["file_data:/app/data"]
+    volumes: ["file_data:/app/data", "./image-preprocessing/config:/app/image-preprocessing/config:ro"]
     networks: [internal]
   hr-mock:
     restart: unless-stopped

@@ -67,7 +67,7 @@ def test_outlook_demo_flow_import_manual_analysis_hr_review_and_export(composio,
     imported = client.get("/api/cases", params={"source": "outlook"}).json()["items"][0]
     assert imported["analysis"]["status"] == "NOT_STARTED"
     assert client.post("/api/analysis?source=outlook").json() == {"queued": 1}
-    assert worker.run_one()
+    assert not worker.run_one()  # Assessment is an in-process background task.
     assert client.get("/api/cases", params={"source": "outlook"}).json()["total"] == 1
     assert client.post("/api/sync", json={"mode": "rescan", "lookback_days": 7}).status_code == 200
     assert worker.run_one()
@@ -78,8 +78,8 @@ def test_outlook_demo_flow_import_manual_analysis_hr_review_and_export(composio,
     # Continue the same imported case through HR review and the final workbook.
     case_id = imported["id"]
     detail = client.get(f"/api/cases/{case_id}").json()
-    assert detail["analysis"]["status"] == "COMPLETED"
-    assert detail["analysis"]["category"] == "FORGOT_CHECK"
+    assert detail["analysis"]["status"] == "MANUAL_REVIEW"
+    assert detail["analysis"]["category"] == "UNKNOWN"
     assert detail["analysis"]["assessment"] == "MISSING"  # This fixture has no evidence image.
     assert detail["hr_status"] == "PENDING_REVIEW"
     assert (
@@ -103,8 +103,9 @@ def test_outlook_demo_flow_import_manual_analysis_hr_review_and_export(composio,
     sheet = load_workbook(BytesIO(response.content)).active
     assert sheet.max_row == 2
     assert sheet.cell(2, 1).value == detail["code"]
-    assert sheet.cell(2, 9).value == "FORGOT_CHECK"
-    assert sheet.cell(2, 10).value == "MISSING"
+    assert sheet.cell(2, 9).value is None
+    assert sheet.cell(2, 10).value == "NOT_EVALUATED"  # No model assessment for the human-only case.
+    assert sheet.cell(2, 11).value == "FORGOT_CHECK"  # The explicit HR decision is exported separately.
     assert sheet.cell(2, 12).value == "CONFIRMED"
     assert sheet.cell(2, 14).value == "hr.demo"
     assert sheet.cell(2, 16).value == "2026-11"

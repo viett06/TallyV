@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, BackgroundTasks
 
 from app.api.deps import DBSession, Filters, HRUser
 from app.schema.common import OperationResult
@@ -22,13 +22,18 @@ def analysis_status(db: DBSession, selection: Filters, user: HRUser):
 
 
 @router.post("/analysis", response_model=AnalysisQueued)
-def queue_analysis(db: DBSession, selection: Filters, user: HRUser):
-    return jobs.queue_analysis(db, selection, user)
+def queue_analysis(db: DBSession, selection: Filters, user: HRUser, background_tasks: BackgroundTasks):
+    return jobs.queue_analysis(db, selection, user, background_tasks)
 
 
 @router.post("/sync", response_model=SyncQueued)
 def sync(db: DBSession, user: HRUser, body: MailboxScanRequest | None = None):
     return jobs.sync(db, body)
+
+
+@router.post("/privacy/preprocess", response_model=AnalysisQueued)
+def queue_privacy(db: DBSession, selection: Filters, user: HRUser, background_tasks: BackgroundTasks):
+    return jobs.queue_privacy(db, selection, user, background_tasks)
 
 
 @router.post("/demo", response_model=DemoQueued)

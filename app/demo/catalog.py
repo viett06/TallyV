@@ -51,7 +51,6 @@ def seed(db):
                     category=cat,
                     settings={
                         "require_evidence": True,
-                        "require_readable_ocr": True,
                         "require_shift": True,
                         "require_punch": cat in {"FORGOT_CHECK", "DEVICE_ERROR"},
                         "version": "demo-1.0",

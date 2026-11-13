@@ -23,9 +23,7 @@ type AttendanceRule = {
   settings: {
     version: string
     description?: string
-    keywords: string[]
     require_evidence: boolean
-    require_readable_ocr: boolean
     require_shift: boolean
     require_punch: boolean
   }
@@ -33,22 +31,18 @@ type AttendanceRule = {
 
 const RULE_CONDITIONS = [
   ['require_evidence', 'rules.evidence_present', 'rules.require_evidence'],
-  ['require_readable_ocr', 'rules.readable_ocr', 'rules.require_readable_ocr'],
   ['require_shift', 'rules.shift_present', 'rules.require_shift'],
   ['require_punch', 'rules.punch_present', 'rules.require_punch'],
 ] as const
 
-type RuleDraft = Omit<AttendanceRule['settings'], 'version' | 'keywords'> & {
+type RuleDraft = Omit<AttendanceRule['settings'], 'version'> & {
   label: string
-  keywords: string
 }
 
 const NEW_RULE: RuleDraft = {
   label: '',
   description: '',
-  keywords: '',
   require_evidence: true,
-  require_readable_ocr: true,
   require_shift: true,
   require_punch: false,
 }
@@ -68,70 +62,30 @@ function WorkspaceBrand({ showLabel = true }: { showLabel?: boolean }) {
   </div>
 }
 
-const processingLabel = (mode:string) => t(mode==='GEMINI'?'processing.gemini':mode==='LOCAL_LLM'?'processing.local_llm':'processing.rules_label')
+const processingLabel = (mode:string) => t(mode==='VLM'?'processing.vlm':'processing.legacy')
 const dateTime = (s:string) => s ? new Date(s).toLocaleString('vi-VN',{timeZone:'Asia/Ho_Chi_Minh',hour:'2-digit',minute:'2-digit',day:'2-digit',month:'2-digit',year:'numeric'}) : '—'
 async function api(path:string, options:RequestInit = {}) {
   const response = await fetch('/api'+path,{credentials:'same-origin',...options,headers:{'Content-Type':'application/json',...options.headers}})
   if (!response.ok) { const data = await response.json().catch(()=>({})); throw new Error(typeof data.detail==='string'?data.detail:JSON.stringify(data.detail||t("errors.request_failed"))) }
   return response.status===204?null:response.json()
 }
-function Badge({value,kind='hr'}:{value:string,kind?:string}) {const labels = kind==='assessment'?ASSESS:kind==='intake'?INTAKE:HR; return <span className={'badge b-'+value}>{labels[value]||({NOT_STARTED:t("analysis.not_evaluated"),PENDING:t("processing.pending"),RUNNING:t("processing.running"),DONE:t("processing.done"),COMPLETED:t("processing.completed"),FAILED:t("processing.failed"),ACTIVE:t("versions.active"),PROPOSED:t("versions.proposed"),REJECTED:t("versions.rejected"),READABLE:t("evidence.readable"),UNREADABLE:t("evidence.unreadable"),UNAVAILABLE:t("evidence.unavailable")} as Item)[value]||value}</span>}
+function Badge({value,kind='hr'}:{value:string,kind?:string}) {const labels = kind==='assessment'?ASSESS:kind==='intake'?INTAKE:HR; return <span className={'badge b-'+value}>{labels[value]||({WAITING_PRIVACY:t("privacy.waiting_analysis"),MANUAL_REVIEW:t("privacy.manual_analysis"),NOT_RUN:t("privacy.vlm_blocked"),NOT_STARTED:t("analysis.not_evaluated"),PENDING:t("processing.pending"),RUNNING:t("processing.running"),DONE:t("processing.done"),COMPLETED:t("processing.completed"),FAILED:t("processing.failed"),ACTIVE:t("versions.active"),PROPOSED:t("versions.proposed"),REJECTED:t("versions.rejected")} as Item)[value]||value}</span>}
 function Category({value, labels}:{value:string, labels:Record<string, string>}) {
   return <span className={'category cat-'+value}><span/>{labels[value] ?? value}</span>
 }
 function Empty({title,children}:{title:string,children?:React.ReactNode}) {return <div className="empty"><Inbox size={34}/><h3>{title}</h3><p>{children||t("empty.filter_hint")}</p></div>}
 function EvidenceObservations({evidence}:{evidence:Item}) {
   const extracted = evidence.extracted || {}
-  const scene = extracted.scene
-  const sceneTags = [
-    scene?.posture==='SEATED'?'evidence.vision_seated':scene?.posture==='STANDING'?'evidence.vision_standing':null,
-    scene?.person_at_desk===true?'evidence.vision_at_desk':null,
-    scene?.screen_visible===true?'evidence.vision_screen_visible':null,
-  ] as const
-  const comparison = extracted.attendance_comparison || extracted.gemini_comparison
-  const history = extracted.image_history
-  const historyLabels = {
-    KNOWN_VIEW: 'evidence.history_known', KNOWN_VIEW_UNLOCATED: 'evidence.history_unlocated',
-    PARTIAL: 'evidence.history_partial', AMBIGUOUS: 'evidence.history_ambiguous',
-    NO_MATCH: 'evidence.history_no_match', NO_REFERENCE: 'evidence.history_empty',
-    INSUFFICIENT_BACKGROUND: 'evidence.history_insufficient', POSSIBLE_REUSE: 'evidence.history_reuse',
-    UNAVAILABLE: 'evidence.history_unavailable', OUT_OF_SCOPE: 'evidence.history_excluded',
-  } as const
-  const historyLabel = historyLabels[history?.status as keyof typeof historyLabels]
-  const offset = extracted.attendance_comparison?.minutes_from_expected_punch
-  const labels: Item = {employee_match:'evidence.employee_comparison',work_date_match:'evidence.date_comparison',shift_match:'evidence.shift_comparison'}
-  const statuses: Item = {MATCH:'evidence.comparison_match',MISMATCH:'evidence.comparison_mismatch',UNKNOWN:'evidence.comparison_unknown'}
-  const visionStatuses = {UNAVAILABLE:'evidence.vision_unavailable',TEST_IMAGE_REQUIRED:'evidence.vision_test_image_required',NOT_CONFIGURED:'evidence.vision_not_configured'} as const
-  const visionNotice = visionStatuses[extracted.vision_status as keyof typeof visionStatuses]
+  const visual = extracted.visual_assessment
+  const visualLabels: Item = {SUPPORTS:'evidence.visual_supports',CONTRADICTS:'evidence.visual_contradicts',INSUFFICIENT:'evidence.visual_insufficient'}
   return <>
-    {scene?.description&&<p>{scene.description}</p>}
-    {extracted.ocr_model&&<small className="muted">OCR · {extracted.ocr_model}</small>}
-    {extracted.vision_model&&<small className="muted">{extracted.vision_model}</small>}
-    {sceneTags.some(Boolean)&&<div className="button-row">{sceneTags.map(label=>label&&<span key={label} className="chip">{t(label)}</span>)}</div>}
-    {visionNotice&&<p className="muted">{t(visionNotice)}</p>}
-    {(extracted.date||extracted.time)&&<p><strong>{[extracted.date,extracted.time].filter(Boolean).join(' ')}</strong></p>}
-    {comparison&&<ul>{Object.entries(labels).map(([key,label])=><li className={comparison[key]==='MISMATCH'?'red-text':''} key={key}>{t(label)} · {t(statuses[comparison[key]]||'evidence.comparison_unknown')}</li>)}</ul>}
-    {extracted.time_source==='ONLY_VISIBLE_TIME'&&<p className="muted">{t('evidence.event_time_visible_only')}</p>}
-    {extracted.time_source==='AMBIGUOUS'&&<p className="muted">{t('evidence.event_time_unclear')}</p>}
-    {Number.isInteger(offset)&&<p>{offset===0
-      ? t('evidence.punch_offset_exact')
-      : t(offset<0?'evidence.punch_offset_early':'evidence.punch_offset_late',{minutes:Math.abs(offset)})}</p>}
-    {historyLabel&&<div className="evidence-history-result">
-      <p><strong>{t(historyLabel)}</strong>{history.location&&<> · {history.location}</>}</p>
-      {!!history.matches?.length&&<ul>{history.matches.slice(0,3).map((match:Item)=>
-        <li key={match.reference_evidence_id}>{t('evidence.history_match_details',{
-          reference:match.reference_evidence_id, regions:match.regions.length, points:match.feature_count,
-        })}{match.shared_signage&&<> · {t('evidence.history_shared_signage')}</>}</li>)}</ul>}
-      {history.reference_evidence_id&&<p>{t('evidence.history_previous_image',{reference:history.reference_evidence_id})}</p>}
+    {evidence.privacy&&<div className={evidence.privacy.status==='MANUAL_REVIEW'?'red-text':''}>
+      <strong>{t(({READY:'privacy.ready',MANUAL_REVIEW:'privacy.manual',PENDING:'privacy.pending'} as Item)[evidence.privacy.status]||'privacy.pending')}</strong>
+      <p>{t(evidence.privacy.vlm_allowed?'privacy.vlm_allowed':'privacy.vlm_blocked')}</p>
+      {evidence.privacy.preview_url&&<a href={evidence.privacy.preview_url} target="_blank" rel="noreferrer">{t('privacy.preview')}</a>}
     </div>}
-    {!!extracted.ocr_regions?.length&&<details><summary>{t("evidence.ocr_regions")}</summary>
-      <div className="ocr-region-preview"><img src={evidence.url} alt={t("evidence.ocr_regions")}/>
-        <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">{extracted.ocr_regions.map((line:Item,index:number)=>{
-          const [x1,y1,x2,y2] = line.box
-          return <rect key={index} x={x1*100} y={y1*100} width={Math.max(0,x2-x1)*100} height={Math.max(0,y2-y1)*100} vectorEffect="non-scaling-stroke"><title>{line.text}</title></rect>
-        })}</svg>
-      </div>
-    </details>}
+    {visual&&<div className={visual.relation==='CONTRADICTS'?'red-text':''}><strong>{t(visualLabels[visual.relation]||'evidence.visual_insufficient')}</strong><p>{visual.observation}</p><p className="muted">{visual.limitations}</p></div>}
+
   </>
 }
 function App(){
@@ -143,7 +97,7 @@ function App(){
     if (app === 'assistant' || app === 'chatbot') return app
     return app === 'hr-attendance' ? 'hr' : 'overview'
   })
-  const [bootstrap,setBootstrap]=useState<Item>({departments:[],periods:[],rules:[],mode:'RULE_BASED',mail_provider:'outlook',synthetic:false,mailbox:{test_mode:true}}),[period,setPeriod]=useState(''),[department,setDepartment]=useState('')
+  const [bootstrap,setBootstrap]=useState<Item>({departments:[],periods:[],rules:[],mode:'VLM',mail_provider:'outlook',synthetic:false,mailbox:{test_mode:true}}),[period,setPeriod]=useState(''),[department,setDepartment]=useState('')
   const [cycle,setCycle]=useState(''),[followCurrentMonth,setFollowCurrentMonth]=useState(true)
   const refreshSequence=useRef(0)
   const [dashboard,setDashboard]=useState<Item>({}),[cases,setCases]=useState<Item>({items:[],total:0}),[emails,setEmails]=useState<Item[]>([]),[jobs,setJobs]=useState<ProcessingJob[]>([])
@@ -156,8 +110,6 @@ function App(){
   const categoryLabels: Record<string, string> = Object.fromEntries(attendanceRules.map(rule=>[rule.category,rule.label]))
   const creatingRule = ruleModal === 'new'
   const ruleDialogTitle = t(creatingRule?'actions.add_rule':'rules.dialog_title')
-  const ruleKeywords = ruleDraft.keywords.split('\n').map(keyword=>keyword.trim()).filter(Boolean)
-  const invalidRuleKeywords = ruleKeywords.length>20 || ruleKeywords.some(keyword=>keyword.length>100)
   const query = new URLSearchParams({source:bootstrap.mail_provider,period,cycle,department,search,category,assessment,hr_status:status,page:String(page),sort,direction}).toString()
   const refresh = async()=>{
     const sequence=++refreshSequence.current
@@ -184,8 +136,8 @@ function App(){
   function openRuleEditor(rule?: AttendanceRule) {
     setError('')
     if (rule) {
-      const {version, keywords, ...settings} = rule.settings
-      setRuleDraft({...settings, label: rule.label, keywords: keywords.join('\n')})
+      const {version, ...settings} = rule.settings
+      setRuleDraft({...settings, label: rule.label})
       setRuleModal(rule.category)
     } else {
       setRuleDraft(NEW_RULE)
@@ -194,8 +146,8 @@ function App(){
   }
   function saveRule(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (busy || invalidRuleKeywords) return
-    const payload = {...ruleDraft, keywords: ruleKeywords}
+    if (busy) return
+    const payload = {...ruleDraft}
     void action(async()=>{
       await api(creatingRule?'/rules':'/rules/'+ruleModal,{
         method: creatingRule?'POST':'PUT',
@@ -215,7 +167,7 @@ function App(){
     await action(()=>api('/sync',{method:'POST'}),t('notices.sync_queued'))
   }
   async function openCase(id:number){try{const c=await api('/cases/'+id);setDetail(c);setEmailDetail(null);setHrCategory(c.hr_category||c.analysis.category);setHrStatus(c.hr_status);setHrNote(c.hr_note);setAck(false);setOverride('');setVersionReason('')}catch(e:any){setError(e.message)}}
-  const analysisInProgress=['PENDING','RUNNING'].includes(detail?.analysis.status)
+  const analysisInProgress=['WAITING_PRIVACY','PENDING','RUNNING'].includes(detail?.analysis.status)
   const detailId=detail?.id
   useEffect(()=>{
     if (!detailId || !analysisInProgress) return
@@ -231,6 +183,7 @@ function App(){
     return ()=>{active=false;window.clearInterval(timer)}
   },[detailId,analysisInProgress])
   const activeVersion=detail?.versions?.find((v:Item)=>v.id===detail.active_version_id)
+  const vlmManualOnly=bootstrap?.mode==='VLM'&&activeVersion?.evidence?.length>0&&activeVersion.evidence.every((e:Item)=>e.privacy?.status==='MANUAL_REVIEW')
   const currentNav=NAV.find(n=>n.id===tab)!
   const processing=jobs.some(j=>j.status==='PENDING'||j.status==='RUNNING')
   const selectRows=(checked:boolean)=>setSelected(checked?cases.items.filter((c:Item)=>c.bulk_eligible).map((c:Item)=>c.id):[])
@@ -374,7 +327,7 @@ function App(){
             </button>
           </div>
           <div className="mode-label"><span className={processing?'pulse':''}/>
-            {bootstrap.mode==='RULE_BASED'?t('processing.rule_based'):processingLabel(bootstrap.mode)}
+            {processingLabel(bootstrap.mode)}
             <small>· {processing?t('processing.running'):t('processing.ready')}</small>
           </div>
         </section>}
@@ -415,18 +368,18 @@ function App(){
           </div>)}
         </div>
       </section>
-      <div className="info-banner neutral"><Server size={23}/><div><h3>{t(bootstrap.mode==='GEMINI'?(bootstrap.jev_enabled?'rules.gemini_jev_notice':'rules.gemini_notice'):bootstrap.mode==='LOCAL_LLM'?'rules.local_llm_notice':'rules.rule_based_notice')}</h3><p>OCR: {bootstrap.ocr_enabled?t("rules.ocr_enabled_hint"):t("rules.ocr_disabled_hint")}{t("rules.processing_configuration_hint")}</p></div></div>
+      <div className="info-banner neutral"><Server size={23}/><div><h3>{t('rules.vlm_notice')}</h3><p>{t("rules.processing_configuration_hint")}</p></div></div>
     </>}
     {tab==='jobs'&&<JobsQueue jobs={jobs} busy={busy} onRetry={id=>action(()=>api('/jobs/'+id+'/retry',{method:'POST'}),t('notices.job_retry_queued'))}/>}
-    <footer className="page-footer"><span>TallyV <span>·</span>{t("app.footer_workspace")}</span><span><ShieldCheck size={13}/>{bootstrap.synthetic?t("app.synthetic_footer"):(bootstrap.mailbox?.transport==='composio'?t("composio.processing_notice"):t(bootstrap.mode==='GEMINI'?'rules.gemini_notice':'outlook.local_processing_notice'))}</span></footer></main></div>
+    <footer className="page-footer"><span>TallyV <span>·</span>{t("app.footer_workspace")}</span><span><ShieldCheck size={13}/>{bootstrap.synthetic?t("app.synthetic_footer"):(bootstrap.mailbox?.transport==='composio'?t("composio.processing_notice"):t('rules.vlm_notice'))}</span></footer></main></div>
     {detail&&<div className="modal-backdrop" onClick={()=>setDetail(null)}>
       <section className="detail-drawer" role="dialog" aria-modal="true" aria-label={t("cases.detail_prefix")+detail.code} onClick={e=>e.stopPropagation()}>
         <div className="drawer-header case-drawer-header">
           <div>
             <span className="eyebrow">{t("cases.detail_eyebrow")}</span>
             <h2>{detail.code}<Badge value={detail.hr_status}/></h2>
-            <button className="btn secondary small-btn" disabled={busy||analysisInProgress}
-              title={analysisInProgress?t('analysis.processing'):undefined} onClick={()=>action(async()=>{
+            <button className="btn secondary small-btn" disabled={busy||analysisInProgress||vlmManualOnly}
+              title={vlmManualOnly?t('privacy.vlm_blocked'):analysisInProgress?t('analysis.processing'):undefined} onClick={()=>action(async()=>{
               await api('/cases/'+detail.id+'/reanalyze',{method:'POST'})
               setDetail(null)
             },t("notices.reanalysis_queued"))}>
@@ -446,9 +399,9 @@ function App(){
         </div>
         <div className="drawer-content"><section className="detail-section" id="case-information"><div className="section-title"><Users size={17}/><h3>{t("cases.source_section")}</h3></div><div className="detail-fields">{[[t("calendar.cycle_filter"),cycleReference(detail.cycle_start)],[t("fields.employee_name"),detail.data.name],[t("fields.employee_code"),detail.employee_id],[t("fields.department"),detail.department],[t("fields.occurrence_date"),detail.data.date],[t("fields.shift"),detail.data.shift||t("common.not_provided")],[t("fields.missing_punch"),detail.data.punch||t("common.not_provided")]].map(([label,value])=><div key={label}><small>{label}</small><strong>{value}</strong></div>)}</div><div className="explanation"><small>{t("cases.original_explanation_caption")}</small><p>{detail.data.explanation||t("cases.explanation_not_provided")}</p></div><div className="source-ref"><Mail size={14}/><button className="text-btn" onClick={async()=>{setEmailDetail(await api('/emails/'+detail.source.email_id));setDetail(null)}}>Email #{detail.source.email_id}</button><ChevronRight size={12}/><span>File #{detail.source.attachment_id}</span><ChevronRight size={12}/><span>{detail.source.sheet}{t("source.row_separator")}{detail.source.row}</span></div></section>
     {detail.proposed_count>0&&<section className="detail-section version-warning"><h3>{t("versions.count_prefix")}{detail.proposed_count}{t("versions.proposed_count_suffix")}</h3><p>{t("versions.review_notice")}</p>{detail.versions.filter((v:Item)=>v.status==='PROPOSED').map((v:Item)=><div className="proposed-version" key={v.id}><strong>{t("versions.proposal_prefix")}{v.id} · file #{v.attachment_id}{t("source.comma_row_separator")}{v.row_number}</strong><div className="version-diff">{Object.keys(v.normalized).filter(k=>v.normalized[k]!==detail.data[k]).map(k=><p key={k}><small>{({explanation:t("fields.explanation"),shift:t("fields.shift"),punch:t("fields.missing_punch"),date:t("fields.date")} as Item)[k]||k}</small><del>{detail.data[k]||t("common.empty_value")}</del><ins>{v.normalized[k]||t("common.empty_value")}</ins></p>)}</div><div className="evidence-thumbs">{v.evidence.map((e:Item)=><button key={e.id} onClick={()=>setZoom(e.url)}><img src={e.url} alt={t("versions.evidence_alt_prefix")+e.anchor}/></button>)}</div><label>{t("versions.decision_reason")}<input value={versionReason} onChange={e=>setVersionReason(e.target.value)} placeholder={t("versions.reason_placeholder")}/></label><div className="button-row"><button className="btn primary small-btn" disabled={busy||versionReason.trim().length<5} onClick={()=>action(async()=>{await api(`/cases/${detail.id}/versions/${v.id}`,{method:'POST',body:JSON.stringify({action:'APPLY',reason:versionReason})});await openCase(detail.id)},t("notices.version_applied"))}>{t("actions.apply_version")}</button><button className="btn secondary small-btn" disabled={busy||versionReason.trim().length<5} onClick={()=>action(async()=>{await api(`/cases/${detail.id}/versions/${v.id}`,{method:'POST',body:JSON.stringify({action:'REJECT',reason:versionReason})});await openCase(detail.id)},t("notices.version_rejected"))}>{t("actions.keep_current_source")}</button></div></div>)}</section>}
-    <section className="detail-section" id="case-evidence"><div className="section-title"><FileSpreadsheet size={17}/><h3>{t("evidence.section_title")}</h3><span className="count-label">{activeVersion?.evidence.length||0}</span></div>{!activeVersion?.evidence.length&&<p className="muted">{t("evidence.none")}</p>}<div className="evidence-grid">{activeVersion?.evidence.map((e:Item)=><article className="evidence-card" key={e.id}><button className="evidence-image" onClick={()=>setZoom(e.url)}><img src={e.url} alt={t("evidence.image_alt_prefix")+e.anchor}/><span><ZoomIn size={15}/>{t("actions.zoom_image")}</span></button><div className="evidence-description"><div><strong>{t("evidence.image_number_prefix")}{e.id} · {e.anchor}</strong><Badge value={e.ocr_status}/></div><EvidenceObservations evidence={e}/><details><summary>{t("evidence.ocr_content")}</summary><pre>{e.ocr_text||t("evidence.no_ocr_content")}</pre><small>{JSON.stringify(e.extracted)}</small></details><ul>{e.checks.map((c:string,i:number)=><li key={i} className={c.startsWith('CONFLICT')?'red-text':''}>{c.replace('CONFLICT: ','').replace('MISSING: ','')}</li>)}</ul></div></article>)}</div></section>
+    <section className="detail-section" id="case-evidence"><div className="section-title"><FileSpreadsheet size={17}/><h3>{t("evidence.section_title")}</h3><span className="count-label">{activeVersion?.evidence.length||0}</span></div>{!activeVersion?.evidence.length&&<p className="muted">{t("evidence.none")}</p>}<div className="evidence-grid">{activeVersion?.evidence.map((e:Item)=><article className="evidence-card" key={e.id}><button className="evidence-image" onClick={()=>setZoom(e.url)}><img src={e.url} alt={t("evidence.image_alt_prefix")+e.anchor}/><span><ZoomIn size={15}/>{t("actions.zoom_image")}</span></button><div className="evidence-description"><div><strong>{t("evidence.image_number_prefix")}{e.id} · {e.anchor}</strong></div><EvidenceObservations evidence={e}/><ul>{e.checks.map((c:string,i:number)=><li key={i} className={c.startsWith('CONFLICT')?'red-text':''}>{c.replace('CONFLICT: ','').replace('MISSING: ','')}</li>)}</ul></div></article>)}</div></section>
     <section className="detail-section system-result" id="case-analysis"><div className="section-title"><Sparkles size={17}/><h3>{t("analysis.section_title")}</h3>{detail.analysis.status==='COMPLETED'&&<span className="chip">{processingLabel(detail.analysis.method)}</span>}</div>
-    {detail.analysis.status==='COMPLETED'?<><div className="button-row"><Category value={detail.analysis.category} labels={categoryLabels}/><Badge value={detail.analysis.assessment} kind="assessment"/>{detail.analysis.method==='GEMINI'&&(detail.analysis.extracted?.jev_verification||bootstrap.jev_enabled)&&<span className="chip">{t(({PASSED:'analysis.jev_passed',NEEDS_REVIEW:'analysis.jev_needs_review',UNAVAILABLE:'analysis.jev_unavailable'} as Item)[detail.analysis.extracted?.jev_verification?.status]||'analysis.jev_not_run')}</span>}</div><p>{detail.analysis.reason}</p>{!!detail.analysis.extracted?.supporting_evidence_ids?.length&&<p className="muted">{t('analysis.supporting_evidence',{references:detail.analysis.extracted.supporting_evidence_ids.map((id:number)=>`#${id}`).join(', ')})}</p>}{detail.analysis.missing.length>0&&<div className="findings"><strong>{t("analysis.missing_information")}</strong><ul>{detail.analysis.missing.map((m:string)=><li key={m}>{m}</li>)}</ul></div>}{detail.analysis.conflicts.length>0&&<div className="findings red-text"><strong>{t("analysis.conflicts")}</strong><ul>{detail.analysis.conflicts.map((m:string)=><li key={m}>{m}</li>)}</ul></div>}<details><summary>{t("analysis.extracted_details")}</summary><pre>{JSON.stringify(detail.analysis.extracted,null,2)}</pre><small>{t("analysis.rule_version_prefix")}{detail.analysis.rules_version} {detail.analysis.model&&'· Model '+detail.analysis.model}</small></details></>:<><Badge value={detail.analysis.status}/><p>{t('analysis.manual_description')}</p></>}
+    {detail.analysis.status==='COMPLETED'?<><div className="button-row"><Category value={detail.analysis.category} labels={categoryLabels}/><Badge value={detail.analysis.assessment} kind="assessment"/></div><p>{detail.analysis.reason}</p>{!!detail.analysis.extracted?.supporting_evidence_ids?.length&&<p className="muted">{t('analysis.supporting_evidence',{references:detail.analysis.extracted.supporting_evidence_ids.map((id:number)=>`#${id}`).join(', ')})}</p>}{detail.analysis.missing.length>0&&<div className="findings"><strong>{t("analysis.missing_information")}</strong><ul>{detail.analysis.missing.map((m:string)=><li key={m}>{m}</li>)}</ul></div>}{detail.analysis.conflicts.length>0&&<div className="findings red-text"><strong>{t("analysis.conflicts")}</strong><ul>{detail.analysis.conflicts.map((m:string)=><li key={m}>{m}</li>)}</ul></div>}<details><summary>{t("analysis.extracted_details")}</summary><pre>{JSON.stringify(detail.analysis.extracted,null,2)}</pre><small>{t("analysis.rule_version_prefix")}{detail.analysis.rules_version} {detail.analysis.model&&'· Model '+detail.analysis.model}</small></details></>:<><Badge value={detail.analysis.status}/><p>{detail.analysis.status==='MANUAL_REVIEW'?detail.analysis.reason:t('analysis.manual_description')}</p></>}
     {detail.analysis.error&&<div className="alert error">{detail.analysis.error}</div>}
     </section>
     <section className="detail-section hr-result" id="case-review"><div className="section-title"><ShieldCheck size={18}/><h3>{t("review.hr_conclusion")}</h3></div><p>{t("review.independent_conclusion_notice")}</p><div className="form-grid"><label>{t("review.hr_category")}<select value={hrCategory} onChange={e=>setHrCategory(e.target.value)}>{Object.entries(categoryLabels).map(([key,value])=><option key={key} value={key}>{String(value)}</option>)}</select></label><label>{t("review.status")}<select value={hrStatus} onChange={e=>setHrStatus(e.target.value)}>{Object.entries(HR).filter(([key])=>key!=='SUPERSEDED').map(([key,value])=><option key={key} value={key}>{String(value)}</option>)}</select></label></div><label>{t("review.note")}<textarea value={hrNote} onChange={e=>setHrNote(e.target.value)} placeholder={t("review.note_placeholder")} rows={3}/></label>{hrStatus==='CONFIRMED'&&!detail.bulk_eligible&&detail.hr_status!=='CONFIRMED'&&<div className="exception-review"><label className="checkbox-label"><input type="checkbox" checked={ack} onChange={e=>setAck(e.target.checked)}/>{t("review.exception_acknowledgement")}</label><label>{t("review.exception_reason")}<textarea value={override} onChange={e=>setOverride(e.target.value)} placeholder={t("review.exception_reason_placeholder")}/></label></div>}{detail.confirmed_at&&<p className="muted">{t("review.confirmed_by_prefix")}{detail.confirmed_by} · {dateTime(detail.confirmed_at)}</p>}<button className="btn primary" disabled={busy||detail.proposed_count>0&&hrStatus==='CONFIRMED'} onClick={saveReview}><Check size={16}/>{t("actions.save_review")}</button></section>
@@ -466,17 +419,13 @@ function App(){
             <textarea required={creatingRule} rows={4} maxLength={2000} value={ruleDraft.description??''} placeholder={t("rules.description_placeholder")} onChange={e=>setRuleDraft({...ruleDraft,description:e.target.value})}/>
             <small>{t("rules.description_hint")}</small>
           </label>
-          {ruleModal!=='UNKNOWN'&&<label className="rule-description-field">{t("rules.keywords")}
-            <textarea rows={3} value={ruleDraft.keywords} onChange={e=>setRuleDraft({...ruleDraft,keywords:e.target.value})}/>
-            <small>{t(invalidRuleKeywords?"rules.keywords_limit":"rules.keywords_hint")}</small>
-          </label>}
           {RULE_CONDITIONS.map(([key,,label])=><label className="checkbox-label rule-toggle" key={key}>
             <input type="checkbox" checked={ruleDraft[key]} onChange={e=>setRuleDraft({...ruleDraft,[key]:e.target.checked})}/>{t(label)}
           </label>)}
           <p>{t(creatingRule?"rules.create_notice":"rules.reanalysis_warning")}</p>
           <div className="button-row">
             <button type="button" className="btn secondary" onClick={()=>setRuleModal('')}>{t("actions.cancel")}</button>
-            <button type="submit" className="btn primary" disabled={busy||invalidRuleKeywords||!ruleDraft.label.trim()||(creatingRule&&!ruleDraft.description?.trim())}>{t("actions.save_and_reanalyze")}</button>
+            <button type="submit" className="btn primary" disabled={busy||!ruleDraft.label.trim()||(creatingRule&&!ruleDraft.description?.trim())}>{t("actions.save_and_reanalyze")}</button>
           </div>
         </form>
       </section>

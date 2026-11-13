@@ -69,9 +69,7 @@ def bootstrap(db: Session) -> dict:
         "current_period": current_period,
         "departments": [{**record(x), "senders": x.senders} for x in active_departments(db)],
         "periods": periods,
-        "mode": settings.processing_mode,
-        "jev_enabled": settings.jev_enabled,
-        "ocr_enabled": settings.ocr_enabled,
+        "mode": "VLM",
         "rules": [rule_view(rule) for rule in catalog_crud.list_rules(db)],
         "synthetic": settings.mail_provider == "mailpit",
     }

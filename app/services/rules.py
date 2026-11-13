@@ -2,7 +2,6 @@ from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
-from app.core.attendance import rule_keywords
 from app.core.errors import AppError
 from app.core.i18n import MESSAGES, message
 from app.core.serialization import model_dict
@@ -18,7 +17,9 @@ def rule_view(rule: DemoRule) -> dict:
     return {
         **model_dict(rule),
         "label": label,
-        "settings": {**rule.settings, "keywords": rule_keywords(rule.category, rule.settings)},
+        "settings": {
+            key: value for key, value in rule.settings.items() if key not in {"keywords", "require_readable_ocr"}
+        },
     }
 
 
@@ -52,14 +53,9 @@ def update_rule(db: Session, category: str, body: RuleUpdateRequest, user: User)
         **body.model_dump(exclude_unset=True, exclude_none=True),
         "version": "demo-" + utcnow().strftime("%Y%m%d%H%M%S%f"),
     }
-    keywords_changed = rule_keywords(category, before) != rule_keywords(category, rule.settings)
     for case in case_crud.list_for_update(db):
         analysis = case_crud.get_analysis(db, case.active_version_id)
-        if analysis and (
-            analysis.category == category
-            or analysis.method in {"GEMINI", "LOCAL_LLM"}
-            or (keywords_changed and analysis.method == "RULE_BASED")
-        ):
+        if analysis and (analysis.category == category or analysis.method == "VLM"):
             previous = case.hr_status
             case.hr_status, case.confirmed_at, case.confirmed_by = "PENDING_REVIEW", None, None
             analysis.status, analysis.assessment = "NOT_STARTED", "NOT_EVALUATED"

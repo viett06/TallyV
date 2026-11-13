@@ -1,0 +1,14 @@
+{
+  "id": "replace-with-reviewed-device-layout",
+  "enabled": false,
+  "kind": "FACEID",
+  "width": 160,
+  "height": 120,
+  "anchors": [
+    {"rect": {"x": 0, "y": 0, "w": 16, "h": 12}},
+    {"rect": {"x": 144, "y": 0, "w": 16, "h": 12}}
+  ],
+  "keep_regions": [{"x": 110, "y": 30, "w": 40, "h": 50}],
+  "pii_regions": [{"x": 0, "y": 100, "w": 160, "h": 20}],
+  "face_region": {"x": 25, "y": 15, "w": 65, "h": 80}
+}

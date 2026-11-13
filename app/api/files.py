@@ -26,6 +26,13 @@ def attachment(attachment_id: int, db: DBSession, user: HRUser):
     )
 
 
+@router.get("/evidence/{evidence_id}/sanitized")
+def sanitized(evidence_id: int, db: DBSession, user: HRUser):
+    return Response(
+        files.sanitized_content(db, evidence_id), media_type="image/png", headers={"Cache-Control": "private, no-store"}
+    )
+
+
 @router.get("/export")
 def export(db: DBSession, selection: Filters, user: HRUser):
     return StreamingResponse(

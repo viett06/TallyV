@@ -15,7 +15,6 @@ from app.core.time import utcnow
 from app.crud import cases as case_crud
 from app.crud import catalog as catalog_crud
 from app.crud import hr as hr_crud
-from app.crud import jobs as job_crud
 from app.models import AnalysisResult, AttendanceCase, AuditLog, CaseVersion, EvidenceFile, User
 from app.schema.cases import (
     BulkConfirmRequest,
@@ -25,13 +24,14 @@ from app.schema.cases import (
     ManualCaseRequest,
     VersionDecisionRequest,
 )
-from app.services.evidence_history import enqueue_confirmed
+from app.services.evidence_privacy import plan_batch, public_status, ready_records
 from app.services.excel import MAX_IMAGE_BYTES, normalize_evidence_image
+from app.services.image_background import defer
 from app.services.review_calendar import parse_cycle, payroll_period, period_bounds
 from app.services.storage import store_bytes
 
 
-def create_case(db: Session, body: ManualCaseRequest, user: User) -> dict:
+def create_case(db: Session, body: ManualCaseRequest, user: User, background_tasks=None) -> dict:
     from app.services.catalog import ensure_period
 
     employee = catalog_crud.get_employee(db, body.employee_id)
@@ -94,8 +94,11 @@ def create_case(db: Session, body: ManualCaseRequest, user: User) -> dict:
         path, sha = store_bytes(content, ".png")
         db.add(EvidenceFile(version_id=version.id, path=path, sha256=sha, anchor=f"#{index}"))
     db.add(AnalysisResult(version_id=version.id, status="NOT_STARTED", assessment="NOT_EVALUATED"))
+    batch = plan_batch(db, [version.id]) if images else None
     db.add(AuditLog(case_id=case.id, actor=user.username, action="CASE_CREATED", after={"version_id": version.id}))
     db.commit()
+    if batch:
+        defer(db, batch, background_tasks)
     return {"id": case.id, "code": code}
 
 
@@ -121,16 +124,19 @@ def delete_case(db: Session, case_id: int, body: DeleteCaseRequest, user: User) 
 
 
 def eligible(db: Session, case, analysis) -> bool:
+    if not analysis or analysis.method != "VLM":
+        return False
+    try:
+        ready, manual = ready_records(db, case_crud.list_evidence(db, analysis.version_id))
+        if not ready or manual or analysis.extracted.get("privacy_revision") != ready[0][1].config_revision:
+            return False
+    except (ValueError, OSError):
+        return False
     proposed = case_crud.proposed_count(db, case.id)
     return bool(
         analysis
         and analysis.status == "COMPLETED"
         and analysis.assessment == "SUFFICIENT"
-        and (
-            not settings.jev_enabled
-            or analysis.method != "GEMINI"
-            or analysis.extracted.get("jev_verification", {}).get("status") == "PASSED"
-        )
         and analysis.category != "UNKNOWN"
         and case.hr_status == "PENDING_REVIEW"
         and not proposed
@@ -152,7 +158,9 @@ def case_item(db: Session, row) -> dict:
             "attachment_id": version.attachment_id,
             "sheet": version.sheet,
             "row": version.row_number,
-        } if email else None,
+        }
+        if email
+        else None,
         "evidence_count": evidence_count,
         "bulk_eligible": eligible(db, case, result),
         "proposed_count": case_crud.proposed_count(db, case.id),
@@ -180,7 +188,14 @@ def case_detail(db: Session, case_id: int) -> dict:
         evidence = []
         for item in case_crud.list_evidence(db, version.id):
             evidence.append(
-                {**{k: v for k, v in record(item).items() if k != "path"}, "url": f"/api/evidence/{item.id}"}
+                {
+                    **{
+                        key: getattr(item, key)
+                        for key in ("id", "version_id", "sha256", "anchor", "extracted", "checks")
+                    },
+                    "url": f"/api/evidence/{item.id}",
+                    "privacy": public_status(db, item.id),
+                }
             )
         result["versions"].append({**record(version), "evidence": evidence, "analysis": record(analysis)})
     result["audit"] = [record(a) for a in case_crud.list_audit(db, case_id)]
@@ -223,8 +238,6 @@ def review(db: Session, case_id: int, body: CaseReviewRequest, user: User) -> di
             reason=body.override_reason.strip() or body.note.strip(),
         )
     )
-    if body.status == "CONFIRMED":
-        enqueue_confirmed(db, case.active_version_id)
     db.commit()
     return {"ok": True}
 
@@ -258,7 +271,6 @@ def bulk(db: Session, body: BulkConfirmRequest, user: User) -> dict:
                 reason=message("audit.bulk_confirmed"),
             )
         )
-        enqueue_confirmed(db, case.active_version_id)
     db.commit()
     return {"confirmed": len(cases)}
 
@@ -296,15 +308,17 @@ def decide_version(db: Session, case_id: int, version_id: int, body: VersionDeci
     return {"ok": True}
 
 
-def reanalyze(db: Session, case_id: int, user: User) -> dict:
+def reanalyze(db: Session, case_id: int, user: User, background_tasks=None, *, restart_background=False) -> dict:
     case = case_crud.get_for_update(db, case_id)
     if not case:
         raise AppError(404, message("cases.not_found"))
     analysis = case_crud.get_analysis(db, case.active_version_id)
+    if analysis.status in {"WAITING_PRIVACY", "PENDING", "RUNNING"} and not (restart_background):
+        raise AppError(409, message("privacy.analysis_busy"))
     before = {"hr_status": case.hr_status, "analysis_status": analysis.status}
     analysis.status, analysis.assessment = "PENDING", "NOT_EVALUATED"
     case.hr_status, case.confirmed_by, case.confirmed_at = "PENDING_REVIEW", None, None
-    job_crud.enqueue(db, "ANALYZE", f"analysis:{case.active_version_id}", {"version_id": case.active_version_id})
+    batch = plan_batch(db, [case.active_version_id], analyze=True)
     db.add(
         AuditLog(
             case_id=case.id,
@@ -316,4 +330,6 @@ def reanalyze(db: Session, case_id: int, user: User) -> dict:
         )
     )
     db.commit()
+    if batch:
+        defer(db, batch, background_tasks)
     return {"ok": True}

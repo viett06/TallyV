@@ -132,11 +132,10 @@ class EvidenceView(View):
     version_id: int
     sha256: str
     anchor: str
-    ocr_status: str
-    ocr_text: str
     extracted: dict[str, Any]
     checks: list[str]
     url: str
+    privacy: dict[str, Any] = Field(default_factory=dict)
 
 
 class CaseVersionView(View):

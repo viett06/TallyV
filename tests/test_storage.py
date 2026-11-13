@@ -4,7 +4,6 @@ import hashlib
 from uuid import uuid4
 
 import boto3
-import httpx
 import pytest
 from botocore.exceptions import EndpointConnectionError
 from moto import mock_aws
@@ -15,11 +14,9 @@ from app.core.errors import AppError
 from app.demo.generate import picture, workbook
 from app.models import Attachment, CaseVersion, EvidenceFile
 from app.services import storage
-from app.services.analysis import analyze
 from scripts.configure_storage import configure
 from scripts.migrate_storage import migrate_files
 from tests.helpers import ingest, row
-from tests.test_ocr_service import configure_http
 
 
 @pytest.fixture
@@ -36,29 +33,19 @@ def s3(context, monkeypatch):
         yield client, storage.get_s3_storage()
 
 
-def test_s3_excel_intake_download_and_ocr_without_local_copies(context, s3, monkeypatch):
+def test_s3_intake_keeps_private_original_without_image_inference(context, s3, monkeypatch):
     sessions, client = context
     s3_client, _ = s3
     image = picture("MP001", "2026-10-01")
     excel = workbook([row()], {2: [image]})
-    calls = []
-
-    def handler(request):
-        assert image in request.read()
-        calls.append(request.url.path)
-        return httpx.Response(200, json={"lines": [{"text": "MP001 2026-10-01 RECORDED", "score": 0.99}]})
-
-    configure_http(monkeypatch, handler)
+    monkeypatch.setattr("app.services.evidence_vision.infer", lambda *a, **kw: pytest.fail("No raw image inference"))
     with sessions() as db:
         ingest(db, excel)
-        analyze(db, db.scalar(select(CaseVersion.id)))
         evidence = db.scalar(select(EvidenceFile))
         attachment = db.scalar(select(Attachment))
-        assert evidence.ocr_status == "READABLE"
         evidence_id, attachment_id = evidence.id, attachment.id
         names = [evidence.path, attachment.path]
         db.commit()
-    assert calls == ["/ocr"]
     assert client.get(f"/api/evidence/{evidence_id}").content == image
     response = client.get(f"/api/attachments/{attachment_id}")
     assert response.content == excel
@@ -141,3 +128,33 @@ def test_storage_setup_preserves_credentials_and_requires_explicit_activation(tm
     configure(path, activate=True)
     assert path.read_text() == first.replace("STORAGE_BACKEND=local", "STORAGE_BACKEND=s3")
     assert path.stat().st_mode & 0o777 == 0o600
+
+
+def test_offline_privacy_processing_writes_sanitized_s3_object_without_local_copy(context, s3, monkeypatch, tmp_path):
+    import asyncio
+
+    from tallyv_image_preprocessing import ProfileSet
+    from tallyv_image_preprocessing.processor import decode
+
+    from app.models import EvidencePrivacy
+    from app.services.evidence_privacy import plan_batch
+    from app.services.image_background import run_batch
+    from tests.test_evidence_vlm import profile, sample
+
+    sessions, _ = context
+    config = tmp_path / "profiles.json"
+    config.write_text(ProfileSet(profiles=[profile()]).model_dump_json())
+    monkeypatch.setattr(settings, "evidence_privacy_profiles_path", config)
+    with sessions() as db:
+        ingest(db, workbook([row()], {2: [sample()]}))
+    with sessions() as db:
+        batch = plan_batch(db, [db.scalar(select(CaseVersion.id))])
+        db.commit()
+    asyncio.run(run_batch(batch, sessions))
+    with sessions() as db:
+        original = db.scalar(select(EvidenceFile))
+        record = db.scalar(select(EvidencePrivacy))
+        assert record.status == "READY" and record.sanitized_path != original.path
+        image = storage.read_bytes(record.sanitized_path)
+        assert (decode(image)[15:95, 25:90] == 0).all()
+    assert list(settings.storage_dir.iterdir()) == [config]

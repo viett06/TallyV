@@ -16,7 +16,7 @@ class AnalysisResult(Base):
     conflicts: Mapped[list] = mapped_column(JSON, default=list)
     evidence_checks: Mapped[list] = mapped_column(JSON, default=list)
     assessment: Mapped[str] = mapped_column(String(30), default="MISSING")
-    method: Mapped[str] = mapped_column(String(30), default="RULE_BASED")
+    method: Mapped[str] = mapped_column(String(30), default="VLM")
     rules_version: Mapped[str] = mapped_column(String(30), default="demo-1.0")
     model: Mapped[str | None] = mapped_column(String(100), nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)

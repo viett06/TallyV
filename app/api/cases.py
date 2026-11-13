@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Form
+from fastapi import APIRouter, BackgroundTasks, Form
 
 from app.api.deps import DBSession, Filters, HRUser
 from app.schema.cases import (
@@ -34,8 +34,10 @@ def list_cases(
 
 
 @router.post("", response_model=CreatedCase, status_code=201)
-def create_case(body: Annotated[ManualCaseRequest, Form()], db: DBSession, user: HRUser):
-    return cases.create_case(db, body, user)
+def create_case(
+    body: Annotated[ManualCaseRequest, Form()], db: DBSession, user: HRUser, background_tasks: BackgroundTasks
+):
+    return cases.create_case(db, body, user, background_tasks)
 
 
 @router.get("/{case_id}", response_model=CaseDetailView)
@@ -64,5 +66,7 @@ def decide_version(case_id: int, version_id: int, body: VersionDecisionRequest, 
 
 
 @router.post("/{case_id}/reanalyze", response_model=OperationResult)
-def reanalyze(case_id: int, db: DBSession, user: HRUser):
-    return cases.reanalyze(db, case_id, user)
+def reanalyze(
+    case_id: int, db: DBSession, user: HRUser, background_tasks: BackgroundTasks, restart_background: bool = False
+):
+    return cases.reanalyze(db, case_id, user, background_tasks, restart_background=restart_background)

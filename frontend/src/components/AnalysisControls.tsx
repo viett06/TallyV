@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { RefreshCw, Sparkles } from 'lucide-react'
+import { RefreshCw, ShieldCheck, Sparkles } from 'lucide-react'
 import { t } from '../i18n'
 
 type AnalysisStatus = { waiting: number; processing: number; completed: number; failed: number; importing: boolean }
@@ -36,10 +36,22 @@ export function AnalysisControls({ api, query, onUpdated, scopeLabel, disabled =
     } catch (error: any) { setError(error.message) }
     finally { setBusy(false) }
   }
+  async function preprocess() {
+    setBusy(true); setError(''); setNotice('')
+    try {
+      const result = await api('/privacy/preprocess?' + query, { method: 'POST' })
+      setNotice(t('privacy.queued', { count: result.queued }))
+      await onUpdated()
+    } catch (error: any) { setError(error.message) }
+    finally { setBusy(false) }
+  }
   const processing = !!status?.processing
   return <section className="analysis-controls" aria-label={t('analysis.start')}>
     <div className="analysis-controls-heading">
       <div><h3><Sparkles size={18}/>{t('analysis.start')}</h3><p>{t('analysis.manual_description')}</p><small>{scopeLabel}</small></div>
+      <button className="btn secondary" disabled={disabled || busy || !!status?.importing} onClick={preprocess}>
+        <ShieldCheck size={16}/>{t('privacy.preprocess')}
+      </button>
       <button className="btn primary" disabled={disabled || busy || !status || !!error || status.importing || processing || status.waiting + status.failed === 0} onClick={start}>
         {busy || processing ? <RefreshCw size={16} className="spin"/> : <Sparkles size={16}/>}
         {t(processing ? 'analysis.processing' : 'analysis.start')}

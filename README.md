@@ -54,7 +54,7 @@ python3 scripts/init_env.py
 docker compose -f compose.yaml -f compose.demo.yaml up --build -d
 ```
 
-Mở **http://127.0.0.1:8000**, đăng nhập `hr.demo` bằng `DEMO_PASSWORD` trong `.env`. Nhấn **Tạo dữ liệu demo**. Worker tạo ảnh/Excel local, gửi **10 email qua SMTP Mailpit**, đọc lại qua API và nhập khoảng **60 trường hợp**, 5 khoa/phòng, 40 nhân viên, kỳ lương và đợt đang chọn (26 tháng trước–25 tháng hiện tại). Không seed trực tiếp trường hợp vào database. Sau khi tiếp nhận xong, nhấn **Đánh giá và phân loại**; chờ khoảng 20–60 giây cho OCR, xem tab Tiến trình xử lý.
+Mở **http://127.0.0.1:8000**, đăng nhập `hr.demo` bằng `DEMO_PASSWORD` trong `.env`. Nhấn **Tạo dữ liệu demo**. Worker tạo ảnh/Excel local, gửi **10 email qua SMTP Mailpit**, đọc lại qua API và nhập khoảng **60 trường hợp**, 5 khoa/phòng, 40 nhân viên, kỳ lương và đợt đang chọn (26 tháng trước–25 tháng hiện tại). Không seed trực tiếp trường hợp vào database. Sau khi tiếp nhận xong, nhấn **Đánh giá và phân loại**; theo dõi xử lý PII và kết quả VLM hoặc yêu cầu nhân viên đánh giá.
 
 - Mailpit local: http://127.0.0.1:8025; SMTP `127.0.0.1:1025`.
 - PostgreSQL demo: localhost `54329`, user/database `tallyv`; mật khẩu được tạo trong `.env`.
@@ -66,7 +66,7 @@ Mở **http://127.0.0.1:8000**, đăng nhập `hr.demo` bằng `DEMO_PASSWORD` t
 
 ## Quy trình demo 5 phút
 
-1. **0:00–0:45** Đăng nhập, nhấn Tạo dữ liệu demo. Mở Tiến trình xử lý để thấy SMTP → đồng bộ → nhập. Dữ liệu hiển thị **Chưa đánh giá**; nhấn **Đánh giá và phân loại** để chạy OCR và phân tích.
+1. **0:00–0:45** Đăng nhập, nhấn Tạo dữ liệu demo. Mở Tiến trình xử lý để thấy SMTP → đồng bộ → nhập. Dữ liệu hiển thị **Chưa đánh giá**; nhấn **Đánh giá và phân loại** để chạy tiền xử lý PII và đánh giá ảnh.
 2. **0:45–1:30** Chọn kỳ tháng 10 rồi tháng 9. Xem số khoa/phòng đã gửi và số liệu thay đổi theo database. Chọn Tất cả kỳ để thấy 10 email / 60 trường hợp.
 3. **1:30–2:15** Mở Hộp thư: khoa 1 có dòng ngày mơ hồ và ảnh sai anchor; file sai mẫu; email không Excel; email ngoài phạm vi. Xem số dòng nguồn = nhập + trùng + dòng lỗi. Lỗi liên kết ảnh cấp file được báo riêng. Nhấn Đồng bộ nhiều lần: không tạo trùng.
 4. **2:15–3:15** Mở MP-1-001: so sánh bản gốc với bản sửa, ghi lý do và giữ/áp dụng phiên bản. Xem MP-1-007/008 có ngày/mã nhân viên trong ảnh không khớp. MP-1-006 có ảnh không đọc được. MP-1-012 có hai ảnh cùng dòng.
@@ -125,108 +125,16 @@ Sheet `DieuChinh` cần đúng 9 cột theo thứ tự:
 - Bản sửa là `PROPOSED`. Nội dung đang dùng giữ nguyên; xác nhận cũ mất hiệu lực. HR phải chấp nhận/từ chối bản sửa kèm lý do. Khi áp dụng, nguồn cũ thành `SUPERSEDED`; kết luận mới chờ HR.
 - **Phân loại nguyên nhân được nêu** khác **đủ dữ kiện theo quy tắc demo**. Tất cả đều chờ HR xác nhận. Không suy ra đủ công từ ảnh nhận diện hoặc camera.
 - HR được sửa phân loại/kết luận/ghi chú; không sửa nguồn. Xác nhận ngoại lệ riêng lẻ cần đánh dấu đã xem bằng chứng và lý do tối thiểu 10 ký tự. Không duyệt lô ngoại lệ.
-- Bảng Quy tắc mô phỏng cấu hình yêu cầu ảnh, OCR, ca và loại lượt thiếu. Thay đổi quy tắc đưa dữ liệu liên quan về **Chưa đánh giá** và hủy hiệu lực xác nhận; nhấn **Đánh giá và phân loại** để cập nhật kết quả. Đây **không phải quy định thật**.
+- Bảng Quy tắc mô phỏng cấu hình yêu cầu ảnh, ca và loại lượt thiếu. Thay đổi quy tắc đưa dữ liệu liên quan về **Chưa đánh giá** và hủy hiệu lực xác nhận; nhấn **Đánh giá và phân loại** để cập nhật kết quả. Đây **không phải quy định thật**.
 
-## OCR local
+## Tiền xử lý PII trước khi đánh giá bằng VLM
 
-TallyV có thể gọi dịch vụ PP-OCRv6 small chạy riêng qua HTTP. Xem [cách chạy OCR API và cấu hình TallyV](docs/ocr-api.md). Chọn `OCR_BACKEND=http` để gọi dịch vụ; mặc định `tesseract` giữ engine có sẵn. API lỗi thì OCR báo không khả dụng, không tự chuyển engine.
+Phân tích đánh giá chỉ gọi VLM, sử dụng trực tiếp package độc lập trong [image-preprocessing](image-preprocessing/README.md), chạy hai bước nền bằng FastAPI `BackgroundTasks` và asyncio: xử lý PII offline theo bố cục FaceID/màn hình lỗi thiết bị, rồi đánh giá những bản ảnh đã xử lý. Không dùng OCR, Haar, YuNet, embedding hoặc model AI trong bước tiền xử lý. Vùng mặt/tên/mã được tô đen cố định; chỉ giữ các vùng nghiệp vụ đã cấu hình, xóa metadata nguồn và lưu bản ảnh bằng UUID riêng.
 
-Phạm vi đầu vào đã làm rõ gồm ảnh quét mặt vào tòa nhà, ảnh camera tại nơi làm việc và điện thoại chụp máy bị lỗi. Bản Tesseract hiện tại chưa xử lý đầy đủ các dạng ảnh này; cần kết hợp đọc chữ và hiểu nội dung ảnh. Xem [yêu cầu bằng chứng ảnh và giới hạn hiện tại](docs/evidence-images.md).
+Tác vụ nền chờ hoàn tất toàn bộ lượt xử lý PII rồi mới gọi VLM với các bản ảnh hợp lệ. Luồng ảnh không cần queue hoặc worker riêng; phần xử lý ảnh nặng được đưa sang thread để không chặn event loop. Ảnh khác, ảnh không khớp bố cục hoặc không xử lý được cần nhân viên đánh giá và bị chặn model; không có nút duyệt để gửi các ảnh này lên VLM. UI có nút **Xử lý PII trước**, trạng thái xử lý và ảnh xem trước sau che.
 
-Xem [nghiên cứu model OCR/hiểu ảnh tự vận hành](docs/self-hosted-evidence-models-research.md) về ứng viên, giấy phép, tài nguyên và ranh giới bảo mật. PP-OCRv6 small hiện có adapter HTTP; các đề xuất model khác chưa được tích hợp và chưa có benchmark chất lượng trên dữ liệu bệnh viện.
+Cấu hình profile mặc định rỗng nên chưa có ảnh nào được phép gửi AI. Xem [cấu hình vùng che, cách gọi subproject, chạy nền async và giới hạn](docs/vlm-evidence.md). VLM chỉ nhận bản ảnh đã xử lý PII và kiểm tra tính toàn vẹn. Các client LLM văn bản, OCR, JEV và bước đối chiếu embedding cũ của luồng đánh giá đã được gỡ.
 
-[Hướng dẫn self-host PP-OCRv6 small](docs/self-host-ppocrv6-small.md) có các bước cài CPU, tải weights, chạy bằng model local và cách quyết định có cần fine-tune hay không. Hướng dẫn chưa được chạy xác nhận trên máy đích.
-
-Docker image cài Tesseract + ngôn ngữ eng/vie trước khi chạy. Mặc định `OCR_ENABLED=true`, không cần tải model. Ảnh mẫu chứa mã MPxxx, ngày ISO và trạng thái chữ rõ để kiểm tra trích xuất bằng Tesseract thật. Bộ đối chiếu MVP dùng chữ English trong ảnh mẫu; không tuyên bố hỗ trợ mọi ảnh tiếng Việt thực tế.
-
-- Tắt: `OCR_ENABLED=false` trong `.env`, `docker compose up -d --force-recreate api worker`.
-- Nếu engine lỗi/không tồn tại: trạng thái `UNAVAILABLE`, OCR text rỗng; nếu ảnh không có chữ đọc được: `UNREADABLE`. Không tạo OCR giả.
-- Lưu riêng text thực đọc, trường trích xuất và điểm đối chiếu. OCR không xác thực tính xác thực của ảnh.
-- Ảnh camera là hình hành lang minh họa vẽ bằng Pillow local, không có người thật. Không nhận diện khuôn mặt.
-
-## Ollama tùy chọn
-
-Mặc định `PROCESSING_MODE=RULE_BASED`: nhãn **Chế độ quy tắc**, không sử dụng LLM. Không có model được tải khi app khởi động.
-
-Chuẩn bị model *trước* khi bật chế độ model:
-
-```bash
-# Profile tùy chọn; không được chạy trong cấu hình mặc định.
-docker compose --profile llm up -d ollama
-# Chỉ nối mạng chuẩn bị để tải model. Không gửi nội dung email/Excel/ảnh.
-docker network connect tallyv_access tallyv-ollama-1
-docker compose exec ollama ollama pull qwen2.5:7b
-docker network disconnect tallyv_access tallyv-ollama-1
-```
-
-Sau đó đặt `PROCESSING_MODE=LOCAL_LLM`, `OLLAMA_URL=http://ollama:11434`, `OLLAMA_MODEL=qwen2.5:7b` trong `.env`, chạy `docker compose up -d --force-recreate api worker`. Phân tích lại các trường hợp muốn thử. Đầu vào model chỉ có mã trường hợp, giải trình và kết quả kiểm tra bằng chứng; không truyền họ tên hoặc ảnh gốc. Ollama chỉ nằm trên mạng internal khi xử lý. Schema JSON được Pydantic kiểm tra. Lỗi kết nối/schema được lưu `FAILED`, `UNKNOWN`, yêu cầu kiểm tra; **không fallback ngầm**. Kết quả vẫn phải qua kiểm tra code và HR.
-
-## Đánh giá chấm công qua Gemini
-
-Trong **Quy tắc mô phỏng**, HR có thể chọn **Thêm loại quy tắc**, nhập tên loại trường hợp, mô tả cách phân loại, từ khóa trong giải trình và các yêu cầu về dữ kiện. Chọn **Điều chỉnh quy tắc** để cập nhật loại đã có. Loại mới xuất hiện trong bộ lọc hồ sơ và phần xác nhận của HR. Chế độ dùng quy tắc nhận diện theo từ khóa. Gemini nhận mô tả, cờ yêu cầu dữ kiện và mã loại khớp từ khóa trong giải trình. Chỉ nhập quy tắc chung và bỏ thông tin cá nhân. Để áp dụng danh mục mới cho hồ sơ đã đánh giá, chạy lại **Đánh giá và phân loại**.
-
-```dotenv
-PROCESSING_MODE=GEMINI
-GEMINI_PROVIDER=openrouter
-OPENROUTER_API_KEY=<khóa OpenRouter dùng chung với Qwen và Jev>
-GEMINI_MODEL=gemini-3.8-flash
-OCR_ENABLED=true
-```
-
-Đặt các biến trên trong `.env` của backend rồi khởi động lại API và worker. Worker Docker cần kết nối tới `openrouter.ai:443`; override `compose.outlook.yaml` đã nối worker vào mạng có egress. Với API Google trực tiếp, đặt `GEMINI_PROVIDER=google` và `GEMINI_API_KEY`. Bấm **Đánh giá và phân loại** để xếp ca chờ xử lý hoặc chạy lại một ca đã có kết quả. [Gemini 3.8 Flash trên OpenRouter](https://openrouter.ai/google/gemini-3.8-flash)
-
-Sau khi TallyV quét Outlook và nhập dữ liệu, bước đánh giá lấy mã nhân viên, ngày, ca và lý do từ phiên bản hồ sơ đã lưu. Gemini nhận dữ kiện đã lọc từ hồ sơ và ảnh bằng chứng để trả trạng thái khớp, lệch hoặc chưa xác định cho mã nhân viên, ngày và khung ca. Hai mã nhân viên được chuyển thành mã tạm bằng cùng một khóa ngẫu nhiên cho mỗi lần đánh giá. Các mốc ngày giờ được chuyển thành chỉ số có cùng gốc để giữ thứ tự và khoảng cách. Ảnh, tệp Excel gốc, họ tên, mã nhân viên, OCR thô và thời điểm gốc ở nội bộ. TallyV gắn kết quả vào phiên bản hồ sơ được đánh giá. HR xem và xác nhận trước bước nghiệp vụ tiếp theo. Dùng dữ liệu giả lập khi kiểm tra lần đầu và rà soát điều khoản dữ liệu của dự án Gemini trước khi đưa dữ liệu thật vào.
-
-### Mô tả ảnh bằng model nội bộ
-
-OCR giữ vùng chữ cùng dữ kiện đọc được để HR kiểm tra. Nếu dùng OCR HTTP, rebuild và khởi động lại service OCR để nhận vùng chữ. Model thị giác chạy bổ sung cho ảnh camera và ảnh chưa rõ loại. Màn hồ sơ hiển thị mô tả cùng các quan sát về tư thế, vị trí tại bàn và việc có màn hình trong ảnh. Danh tính và địa điểm vẫn cần căn cứ ngoài mô tả cảnh.
-
-```dotenv
-EVIDENCE_VISION_ENABLED=true
-EVIDENCE_VISION_URL=http://127.0.0.1:11434
-EVIDENCE_VISION_MODEL=qwen3-vl:2b-instruct
-```
-
-Nạp trước model bằng `ollama pull qwen3-vl:2b-instruct` trên Ollama nội bộ, rồi khởi động lại worker. Nếu worker và Ollama cùng chạy trong Compose, dùng `EVIDENCE_VISION_URL=http://ollama:11434`. Chạy Ollama với `OLLAMA_NO_CLOUD=1` và cô lập runtime suy luận khỏi Internet khi xử lý ảnh. Gemini và Jev nhận các quan sát có cấu trúc về cảnh. Mô tả tự do và ảnh gốc được giữ nội bộ.
-
-Cột ca nên có khoảng giờ rõ ràng, ví dụ `08:00–17:00` hoặc `22:00–06:00`. Nếu chỉ có tên ca và TallyV chưa biết lịch tương ứng, đối chiếu khung ca hiển thị **Chưa xác định**.
-
-#### Thử cả OCR và Qwen qua API bên ngoài
-
-```dotenv
-OCR_ENABLED=true
-OCR_BACKEND=vlmrun
-VLMRUN_API_KEY=<khóa VLM Run Gateway>
-VLMRUN_OCR_LANG=vi
-EVIDENCE_VISION_ENABLED=true
-EVIDENCE_VISION_PROVIDER=openrouter
-EVIDENCE_VISION_MODEL=qwen3-vl:8b-instruct
-OPENROUTER_API_KEY=<khóa OpenRouter>
-```
-
-VLM Run phục vụ `paddleocr/pp-ocrv6`, bản Medium theo danh mục của provider. Tạo khóa ở Settings → API keys trong dashboard, hoặc đặt `VLMRUN_API_KEY=vlmrun` để thử với hạn mức ẩn danh. [Model PP-OCRv6](https://vlm.run/gateway/models/paddleocr-pp-ocrv6), [Xác thực VLM Run](https://docs.vlm.run/gateway/authentication)
-
-Tạo `OPENROUTER_API_KEY` trong tài khoản OpenRouter. TallyV gọi `qwen/qwen3-vl-8b-instruct` qua Parasail và tắt chuyển tuyến sang provider khác. [Tạo khóa OpenRouter](https://openrouter.ai/settings/keys), [Endpoint Qwen3-VL 8B](https://openrouter.ai/api/v1/models/qwen/qwen3-vl-8b-instruct/endpoints)
-
-Khi chạy phân tích hồ sơ, worker đọc ảnh PNG bằng chứng từ kho lưu trữ, gửi ảnh sang VLM Run để đọc chữ rồi sang OpenRouter để mô tả cảnh. Ở cấu hình cloud, hai dịch vụ nhận nguyên ảnh. Sau khi sửa cấu hình, khởi động lại worker và chạy phân tích hồ sơ. Nếu chạy Docker, dùng kèm `compose.outlook.yaml` để worker có kết nối ra ngoài.
-
-Để đưa về nội bộ, chuyển `OCR_BACKEND=http` và trỏ tới service PP-OCRv6 Medium chạy nội bộ. Với service OCR do bạn triển khai trên HTTPS để thử từ xa, dùng `OCR_BACKEND=remote` và các biến `OCR_REMOTE_*`. Đặt `EVIDENCE_VISION_PROVIDER=ollama` sau khi đã nạp `qwen3-vl:8b-instruct` vào Ollama. Ghi lại phiên bản weights và cách lượng tử hóa khi so sánh hai môi trường. [Triển khai OCR Medium](docs/ocr-api.md), [Weights Qwen3-VL 8B](https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct)
-
-### Kiểm tra đề xuất bằng Jev
-
-Để bật bước kiểm tra sau Gemini qua OpenRouter, thêm các biến sau rồi khởi động lại API và worker. Jev dùng chung `OPENROUTER_API_KEY` và gọi endpoint System One với model `typesafe/jev-1.14`. [Jev trên OpenRouter](https://openrouter.ai/docs/guides/community/jev)
-
-```dotenv
-JEV_ENABLED=true
-JEV_PROVIDER=openrouter
-JEV_THRESHOLD=0.85
-```
-
-Với API TypeSafe trực tiếp, đặt `JEV_PROVIDER=typesafe` và `JEV_API_KEY`. Biến `JEV_MODEL` áp dụng cho API TypeSafe trực tiếp.
-
-Jev nhận lại dữ kiện đã lọc, một quy tắc HR cho nhãn được đề xuất và phần giải thích Gemini đã lọc riêng. Jev không nhận mã hồ sơ gửi Gemini, ảnh hoặc OCR gốc. Hai câu hỏi Noul đo mức dữ kiện hỗ trợ nhãn và khả năng giải thích vượt quá dữ kiện. Với cấu hình mẫu, cần điểm hỗ trợ từ 0,85 và điểm vượt căn cứ tối đa 0,15. Đây là ngưỡng khởi điểm để kiểm thử với HR.
-
-Nếu Jev không xác nhận hoặc phản hồi lỗi, giữ đề xuất Gemini và yêu cầu HR đối chiếu thủ công. Kết quả Gemini cũ chưa qua Jev cần chạy lại để đủ điều kiện duyệt lô khi bật bước này. HR vẫn xác nhận kết quả cuối. [Chính sách lưu giữ dữ liệu của TypeSafe](https://help.typesafe.ai/articles/5974925716)
 
 ## Kiểm thử
 
@@ -238,7 +146,7 @@ python -m pytest -q
 cd frontend && npm ci && npm run build
 ```
 
-Unit/integration API tests dùng database SQLite tạm riêng để không đụng demo. Luồng thực tế PostgreSQL, Mailpit, worker và OCR được kiểm tra bằng smoke script:
+Unit/integration API tests dùng database SQLite tạm riêng để không đụng demo. Luồng thực tế PostgreSQL, Mailpit và worker được kiểm tra bằng smoke script:
 
 ```bash
 # Sau khi chạy stack và tạo demo; script sẽ ghi một kết quả xác nhận demo
@@ -276,7 +184,7 @@ uvicorn hr_mock_app:app --host 127.0.0.1 --port 8010 --no-access-log
 # Frontend khi phát triển: cd frontend && npm run dev
 ```
 
-Local Python cần Tesseract riêng nếu bật OCR; không có thì UI báo cần HR xem ảnh. Khi dùng Vite proxy, mở http://127.0.0.1:5173. Sau `npm run build`, FastAPI phục vụ bundle ngay tại port 8000 (khởi động lại nếu trước đó chưa có thư mục dist).
+Khi dùng Vite proxy, mở http://127.0.0.1:5173. Sau `npm run build`, FastAPI phục vụ bundle ngay tại port 8000 (khởi động lại nếu trước đó chưa có thư mục dist).
 
 Nếu cần demo SMTP với API/worker native, đặt `MAIL_PROVIDER=mailpit` trong `.env` và chạy `docker compose -f compose.yaml -f compose.demo.yaml up -d mailpit`. Khi dùng Outlook/Composio, không cần container Mailpit.
 
@@ -291,14 +199,14 @@ Không chạy thêm worker Python cùng lúc. Khi đổi từ named volume Docke
 ## Giới hạn thực tế và bảo mật
 
 - MVP dùng nội bộ trên máy demo; không phải hệ thống production/SSO. Một tài khoản HR demo, cookie ký HMAC, HttpOnly/SameSite Strict, kiểm tra Origin/Fetch Metadata, giới hạn thử đăng nhập đơn giản trong process.
-- Secret lấy từ biến môi trường; log chỉ ID job và loại lỗi. Không log mật khẩu, email, giải trình hay OCR đầy đủ. Tắt access log Uvicorn theo lệnh mặc định.
+- Secret lấy từ biến môi trường; log chỉ ID job và loại lỗi. Không log mật khẩu, email, giải trình hay nội dung bằng chứng. Tắt access log Uvicorn theo lệnh mặc định.
 - Không mount storage công khai. Ảnh/file đi qua API có quyền HR, đường dẫn UUID được kiểm tra, file tải về dùng attachment. UI render email thành text, không chạy HTML hoặc tự mở URL.
 - Workbook không thực thi macro/công thức, từ chối macro/external workbook links, kiểm tra kích thước nén/giải nén/ảnh. Công thức trong dòng gây lỗi dòng. Excel xuất cưỡng bức kiểu chuỗi cho giá trị không đáng tin.
-- Cấu hình mặc định xử lý AI/OCR cục bộ. Chế độ thử OCR và Qwen từ xa chỉ gửi ảnh trong danh sách SHA-256 đã duyệt. Trình duyệt gọi API cùng origin và chuyển sang trang Microsoft khi HR đăng nhập. Mailpit và Ollama giới hạn host nội bộ.
+- Tiền xử lý ảnh chạy offline. VLM chỉ nhận ảnh khớp profile đã cấu hình và đã xử lý PII; profile mặc định rỗng chặn toàn bộ ảnh. Trình duyệt gọi API cùng origin và chuyển sang trang Microsoft khi HR đăng nhập. Mailpit và Ollama giới hạn host nội bộ.
 - Worker Compose gốc chỉ nối mạng internal. Chế độ Outlook dùng thêm `compose.outlook.yaml` để worker truy cập Microsoft identity/Graph theo quyền HR đã cấp. Cổng API/Mailpit/Postgres vẫn chỉ bind loopback. Chưa cấu hình Entra hoặc chưa cấp quyền thì không đọc được hộp thư thật.
 - Giới hạn: XLSX 15 MB, tối đa 2000 dòng/30 cột, 60 MB giải nén; ảnh PNG/JPEG do Pillow đọc được, 8 MB/16 triệu pixel. Không PDF/OCR tài liệu nhiều trang, không macro, không nhận diện khuôn mặt.
 - Retry không sửa nội dung nguồn sai: HR phải yêu cầu file sửa. Email ngoài phạm vi giữ lại để xem và gửi lại đúng mẫu, chưa có tính năng gán khoa/kỳ thủ công.
 - Một worker, polling 30 giây, chưa tối ưu khối lượng lớn, chưa có antivirus/quarantine chuyên dụng hoặc cơ chế phục hồi file mồ côi sau process crash. File đã được lưu mà transaction rollback có thể còn UUID mồ côi; không làm phát sinh trường hợp trùng.
-- Model/OCR không được coi là bằng chứng phê duyệt công. Không tuyên bố độ chính xác trên dữ liệu bệnh viện thật.
+- Kết quả VLM không được coi là bằng chứng phê duyệt công. Không tuyên bố độ chính xác trên dữ liệu bệnh viện thật.
 
 Tham khảo kỹ thuật: [Mailpit API](https://mailpit.axllent.org/docs/api-v1/), [Alembic](https://alembic.sqlalchemy.org/en/latest/tutorial.html), [SQLAlchemy](https://docs.sqlalchemy.org/en/20/core/engines.html).

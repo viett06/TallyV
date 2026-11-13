@@ -9,6 +9,7 @@ from zipfile import BadZipFile, ZipFile
 from openpyxl import load_workbook
 from openpyxl.drawing.spreadsheet_drawing import OneCellAnchor, TwoCellAnchor
 from PIL import Image
+from tallyv_image_preprocessing.processor import decode
 
 from app.core.attendance import HEADERS, PUNCH_IN, PUNCH_NA, PUNCH_OUT, SHEET_NAME
 from app.core.i18n import message
@@ -21,13 +22,9 @@ MAX_IMAGE_BYTES = 8 * 1024 * 1024
 def normalize_evidence_image(content: bytes) -> bytes:
     if len(content) > MAX_IMAGE_BYTES:
         raise ValueError(message("excel.image_too_large"))
-    with Image.open(BytesIO(content)) as image:
-        if image.width * image.height > 16_000_000:
-            raise ValueError(message("excel.image_pixel_limit"))
-        image.load()
-        output = BytesIO()
-        image.convert("RGB").save(output, format="PNG")
-        return output.getvalue()
+    output = BytesIO()
+    Image.fromarray(decode(content)).save(output, format="PNG")
+    return output.getvalue()
 
 
 def strict_date(value):

@@ -18,7 +18,7 @@ path.write_text(
     f"SECRET_KEY={secrets.token_hex(32)}\nDEMO_USERNAME=hr.demo\nDEMO_PASSWORD={password}\n"
     f"POSTGRES_PASSWORD={db_password}\n"
     f"DATABASE_URL=postgresql+psycopg://tallyv:{db_password}@127.0.0.1:54329/tallyv\n"
-    "PROCESSING_MODE=RULE_BASED\nOCR_ENABLED=true\n",
+    "EVIDENCE_VISION_PROVIDER=ollama\n",
     encoding="utf-8",
 )
 path.chmod(0o600)

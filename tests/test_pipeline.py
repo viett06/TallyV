@@ -1,6 +1,5 @@
 from datetime import datetime, timezone
 from io import BytesIO
-from unittest.mock import patch
 
 from openpyxl import load_workbook
 from openpyxl.drawing.spreadsheet_drawing import AnchorMarker, TwoCellAnchor
@@ -18,7 +17,6 @@ from app.models import (
     EvidenceFile,
     ImportBatch,
 )
-from app.services.analysis import Suggestion, analyze, rule_suggestion
 from app.services.email_provider import IncomingEmail
 from app.services.excel import parse_workbook
 from app.services.imports import process_email, synchronize
@@ -116,7 +114,7 @@ def test_formulas_and_template_errors_are_not_executed(context):
     assert not parsed and count == len(errors) == 1 and global_errors
 
 
-def test_bulk_server_enforces_eligibility_and_atomicity(context):
+def test_bulk_rejects_results_without_processed_evidence(context):
     sessions, client = context
     with sessions() as db:
         ingest(db, workbook([row(), row("TEST-002")]))
@@ -129,12 +127,9 @@ def test_bulk_server_enforces_eligibility_and_atomicity(context):
     assert client.post("/api/cases/bulk-confirm", json={"ids": ids, "acknowledged": True}).status_code == 409
     with sessions() as db:
         assert all(c.hr_status == "PENDING_REVIEW" for c in db.scalars(select(AttendanceCase)))
-    assert client.post("/api/cases/bulk-confirm", json={"ids": [ids[0]], "acknowledged": True}).json() == {
-        "confirmed": 1
-    }
     assert client.post("/api/cases/bulk-confirm", json={"ids": [ids[0]], "acknowledged": True}).status_code == 409
     with sessions() as db:
-        assert db.scalar(select(AuditLog)).actor == "hr.demo"
+        assert all(c.hr_status == "PENDING_REVIEW" for c in db.scalars(select(AttendanceCase)))
 
 
 def test_hr_correction_audit_and_export_filter_safe_literal(context):
@@ -158,33 +153,6 @@ def test_hr_correction_audit_and_export_filter_safe_literal(context):
     assert wb.active.cell(2, 11).value == "DEVICE_ERROR"
 
 
-def test_llm_schema_error_is_visible_and_no_fake_fallback(context, monkeypatch):
-    sessions, _ = context
-    from app.core.config import settings
-
-    monkeypatch.setattr(settings, "processing_mode", "LOCAL_LLM")
-    with sessions() as db:
-        ingest(db, workbook([row()]))
-        version = db.scalar(select(CaseVersion))
-        with patch("app.services.analysis.local_suggestion", side_effect=ValueError("invalid JSON")):
-            analyze(db, version.id)
-        result = db.scalar(select(AnalysisResult))
-        assert result.status == "FAILED" and result.error and result.method == "LOCAL_LLM"
-        assert result.category == "UNKNOWN" and result.assessment == "MISSING"
-
-
-def test_ocr_unavailable_is_explicit_and_does_not_invent_text(context):
-    sessions, _ = context
-    with sessions() as db:
-        ingest(db, workbook([row()], {2: [picture("MP001", "2026-10-01")]}))
-        version = db.scalar(select(CaseVersion))
-        analyze(db, version.id)
-        evidence = db.scalar(select(EvidenceFile))
-        result = db.scalar(select(AnalysisResult))
-        assert evidence.ocr_status == "UNAVAILABLE" and evidence.ocr_text == ""
-        assert result.assessment == "MISSING" and result.category == "FORGOT_CHECK"
-
-
 def test_auth_files_and_csrf(context):
     sessions, client = context
     with sessions() as db:
@@ -196,14 +164,6 @@ def test_auth_files_and_csrf(context):
         assert client.get(path).status_code == 401
 
 
-def test_rule_classifier_schema_and_conflicting_causes():
-    assert (
-        Suggestion.model_validate(rule_suggestion(message("tests.explanation.forgot_check"))).category == "FORGOT_CHECK"
-    )
-    assert rule_suggestion(message("tests.explanation.multiple_causes")).category == "UNKNOWN"
-    assert rule_suggestion(message("tests.explanation.overtime")).category == "UNKNOWN"
-
-
 def test_no_external_endpoint_and_no_html_execution(context):
     import pytest
     from pydantic import ValidationError
@@ -213,7 +173,7 @@ def test_no_external_endpoint_and_no_html_execution(context):
     with pytest.raises(ValidationError):
         Settings(mailpit_url="https://public.example.com")
     with pytest.raises(ValidationError):
-        Settings(ollama_url="http://public.example.com")
+        Settings(evidence_vision_url="http://public.example.com")
     sessions, client = context
 
     class UnsafeProvider:
@@ -242,62 +202,6 @@ def test_no_external_endpoint_and_no_html_execution(context):
     assert response.json()["body"].startswith("<script>")  # JSON data; UI uses React text nodes.
     assert "connect-src 'self'" in response.headers["content-security-policy"]
     assert client.post(f"/api/emails/{email_id}/retry").status_code == 422
-
-
-def test_local_llm_payload_excludes_employee_name_and_validates_json(context, monkeypatch):
-    from app.services.analysis import local_suggestion
-
-    class FakeResponse:
-        def raise_for_status(self):
-            pass
-
-        def json(self):
-            return {
-                "message": {
-                    "content": '{"category":"FORGOT_CHECK","reason":"The explanation reports a forgotten attendance check","extracted":{},"missing":[],"conflicts":[]}'
-                }
-            }
-
-    class FakeClient:
-        def __init__(self, **kwargs):
-            assert kwargs["trust_env"] is False and kwargs["follow_redirects"] is False
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            pass
-
-        def post(self, url, json):
-            assert set(__import__("json").loads(json["messages"][1]["content"])) == {
-                "case_code",
-                "explanation",
-                "evidence",
-            }
-            assert json["format"]["additionalProperties"] is False
-            return FakeResponse()
-
-    monkeypatch.setattr("app.services.analysis.httpx.Client", FakeClient)
-    result = local_suggestion("TEST-001", message("category.forgot_check"), [])
-    assert result.category == "FORGOT_CHECK"
-
-
-def test_ocr_normalization_preserves_raw_text_and_detects_conflict(context, monkeypatch):
-    from app.core.config import settings
-
-    sessions, _ = context
-    monkeypatch.setattr(settings, "ocr_enabled", True)
-    raw = "EMPLOYEE: MPOO1\nDATE: 2026-10-02\nSTATUS: RECORDED\n"
-    monkeypatch.setattr("app.services.analysis.read_text", lambda *a, **k: raw)
-    with sessions() as db:
-        ingest(db, workbook([row()], {2: [picture("MP001", "2026-10-01")]}))
-        version = db.scalar(select(CaseVersion))
-        analyze(db, version.id)
-        evidence = db.scalar(select(EvidenceFile))
-        result = db.scalar(select(AnalysisResult))
-        assert evidence.ocr_text == raw and evidence.extracted["employee_id"] == "MP001"
-        assert "normalization" in evidence.extracted
-        assert result.assessment == "CONFLICT" and any(message("excel.header.date") in c for c in result.conflicts)
 
 
 def test_worker_retry_rolls_back_partial_job_and_does_not_duplicate(context, monkeypatch):
@@ -349,7 +253,7 @@ def test_rule_change_invalidates_previous_confirmation(context):
         db.commit()
     response = client.put(
         "/api/rules/FORGOT_CHECK",
-        json={"require_evidence": True, "require_readable_ocr": True, "require_shift": True, "require_punch": True},
+        json={"require_evidence": True, "require_shift": True, "require_punch": True},
     )
     assert response.status_code == 200
     with sessions() as db:
@@ -358,20 +262,6 @@ def test_rule_change_invalidates_previous_confirmation(context):
         assert case.hr_status == "PENDING_REVIEW" and case.confirmed_by is None
         assert result.status == "NOT_STARTED"
         assert db.scalar(select(AuditLog).where(AuditLog.case_id == case_id)).action == "RULE_CHANGED"
-
-
-def test_watermark_only_ocr_is_not_readable_business_evidence(context, monkeypatch):
-    from app.core.config import settings
-
-    sessions, _ = context
-    monkeypatch.setattr(settings, "ocr_enabled", True)
-    monkeypatch.setattr("app.services.analysis.read_text", lambda *a, **k: message("tests.ocr.watermark_only"))
-    with sessions() as db:
-        ingest(db, workbook([row()], {2: [picture("MP001", "2026-10-01", unreadable=True)]}))
-        analyze(db, db.scalar(select(CaseVersion.id)))
-        evidence = db.scalar(select(EvidenceFile))
-        assert evidence.ocr_status == "UNREADABLE"
-        assert evidence.ocr_text.startswith(message("tests.ocr.watermark_prefix"))
 
 
 def test_fully_invalid_template_is_failed_not_completed_or_partial(context):

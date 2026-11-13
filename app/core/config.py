@@ -28,29 +28,7 @@ class Settings(BaseSettings):
     mailpit_url: str = "http://127.0.0.1:8025"
     smtp_host: str = "127.0.0.1"
     smtp_port: int = 1025
-    processing_mode: str = "GEMINI"
-    ollama_url: str = "http://127.0.0.1:11434"
-    ollama_model: str = "qwen2.5:7b"
-    gemini_provider: Literal["google", "openrouter"] = "google"
-    gemini_api_key: SecretStr = SecretStr("")
-    gemini_model: str = Field(default="gemini-3.8-flash", pattern=r"^gemini-[a-z0-9.-]{1,80}$")
-    jev_enabled: bool = False
-    jev_provider: Literal["typesafe", "openrouter"] = "typesafe"
-    jev_api_key: SecretStr = SecretStr("")
-    jev_model: str = Field(default="jev-1.14.0", pattern=r"^jev-[a-z0-9.-]{1,80}$")
-    jev_threshold: float = Field(default=0.85, gt=0.5, lt=1, allow_inf_nan=False)
-    ocr_enabled: bool = False
-    ocr_backend: Literal["tesseract", "http", "remote", "vlmrun"] = "tesseract"
-    ocr_api_url: str = "http://127.0.0.1:8001"
-    ocr_api_timeout: float = Field(default=30, gt=0, le=120, allow_inf_nan=False)
-    ocr_remote_url: str = ""
-    ocr_remote_api_token: SecretStr = SecretStr("")
-    ocr_remote_model: Literal["PP-OCRv6_small", "PP-OCRv6_medium"] = "PP-OCRv6_medium"
-    vlmrun_api_key: SecretStr = SecretStr("")
-    vlmrun_ocr_lang: str = Field(default="vi", pattern=r"^[a-z_]{2,20}$")
-    evidence_history_enabled: bool = False
-    evidence_history_model_path: Path | None = None
-    evidence_vision_enabled: bool = False
+    evidence_privacy_profiles_path: Path = ROOT / "image-preprocessing/config/profiles.json"
     evidence_vision_provider: Literal["ollama", "qwen_cloud", "openrouter"] = "ollama"
     evidence_vision_url: str = "http://127.0.0.1:11434"
     evidence_vision_model: Literal[
@@ -172,47 +150,7 @@ class Settings(BaseSettings):
             raise ValueError("DEMO_PASSWORD must contain at least 10 characters")
         return value
 
-    @field_validator("processing_mode")
-    @classmethod
-    def valid_mode(cls, value):
-        if value not in {"RULE_BASED", "LOCAL_LLM", "GEMINI"}:
-            raise ValueError("Unknown processing mode")
-        return value
-
-    @model_validator(mode="after")
-    def gemini_credentials(self):
-        if self.processing_mode == "GEMINI":
-            key = self.openrouter_api_key if self.gemini_provider == "openrouter" else self.gemini_api_key
-            if not key.get_secret_value().strip():
-                name = "OPENROUTER_API_KEY" if self.gemini_provider == "openrouter" else "GEMINI_API_KEY"
-                raise ValueError(f"{name} is required when PROCESSING_MODE=GEMINI")
-        if self.jev_enabled:
-            if self.processing_mode != "GEMINI":
-                raise ValueError("JEV_ENABLED requires PROCESSING_MODE=GEMINI")
-            key = self.openrouter_api_key if self.jev_provider == "openrouter" else self.jev_api_key
-            if not key.get_secret_value().strip():
-                name = "OPENROUTER_API_KEY" if self.jev_provider == "openrouter" else "JEV_API_KEY"
-                raise ValueError(f"{name} is required when JEV_ENABLED=true")
-        return self
-
-    @field_validator("ocr_remote_url")
-    @classmethod
-    def remote_ocr_https(cls, value):
-        value = value.strip().rstrip("/")
-        if value:
-            parsed = urlparse(value)
-            if (
-                parsed.scheme != "https"
-                or not parsed.hostname
-                or parsed.username is not None
-                or parsed.password is not None
-                or parsed.query
-                or parsed.fragment
-            ):
-                raise ValueError("OCR_REMOTE_URL must be an HTTPS base URL without embedded credentials")
-        return value
-
-    @field_validator("mailpit_url", "ollama_url", "hr_mock_url", "ocr_api_url", "evidence_vision_url")
+    @field_validator("mailpit_url", "hr_mock_url", "evidence_vision_url")
     @classmethod
     def internal_url(cls, value):
         parsed = urlparse(value)

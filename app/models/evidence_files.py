@@ -11,6 +11,7 @@ class EvidenceFile(Base):
     path: Mapped[str] = mapped_column(Text)
     sha256: Mapped[str] = mapped_column(String(64))
     anchor: Mapped[str] = mapped_column(String(80))
+    # Retained only for historical data; no current inference code reads these.
     ocr_status: Mapped[str] = mapped_column(String(30), default="PENDING")
     ocr_text: Mapped[str] = mapped_column(Text, default="")
     extracted: Mapped[dict] = mapped_column(JSON, default=dict)

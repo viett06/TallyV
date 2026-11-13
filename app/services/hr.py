@@ -46,7 +46,7 @@ def _blocked(db: Session, case, analysis) -> str | None:
         return message("hr.synthetic_only")
     if case_store.proposed_count(db, case.id):
         return message("review.version_decision_required")
-    if not analysis or analysis.status != "COMPLETED":
+    if not analysis or analysis.status not in {"COMPLETED", "MANUAL_REVIEW"}:
         return message("hr.analysis_required")
     if (
         case.hr_status != "CONFIRMED"

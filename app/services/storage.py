@@ -1,4 +1,4 @@
-"""Private file storage shared by imports, downloads and OCR (local or S3-compatible)."""
+"""Private file storage for imports, downloads and processed evidence (local or S3-compatible)."""
 
 import base64
 import hashlib

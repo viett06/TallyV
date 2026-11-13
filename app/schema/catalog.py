@@ -52,7 +52,6 @@ class BootstrapView(View):
     departments: list[DepartmentView]
     periods: list[ReviewPeriodView]
     mode: str
-    ocr_enabled: bool
     rules: list[RuleView]
     synthetic: bool
 

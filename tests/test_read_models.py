@@ -8,9 +8,8 @@ from sqlalchemy import select
 
 from app.core.i18n import message
 from app.demo.generate import picture, workbook
-from app.models import AttendanceCase, CaseVersion
+from app.models import AttendanceCase
 from app.schema.cases import AuditView
-from app.services.analysis import analyze
 from tests.helpers import ingest, row
 
 
@@ -21,8 +20,6 @@ def test_all_read_views_validate_after_partial_import(context):
             db, workbook([row(), row("BAD-ROW", employee="MP999")], {2: [picture("MP001", "2026-10-01")]})
         )
         case = db.scalar(select(AttendanceCase))
-        version = db.scalar(select(CaseVersion))
-        analyze(db, version.id)
         db.commit()
         case_id, email_id = case.id, email.id
 
@@ -45,7 +42,8 @@ def test_all_read_views_validate_after_partial_import(context):
     assert detail.status_code == 200
     evidence = detail.json()["versions"][0]["evidence"][0]
     assert "path" not in evidence
-    assert evidence["ocr_status"] == "UNAVAILABLE"
+    assert "ocr_status" not in evidence and "ocr_text" not in evidence
+    assert evidence["privacy"]["vlm_allowed"] is False
     assert client.get(evidence["url"]).status_code == 200
 
     emails = client.get("/api/emails?period=2026-10")

@@ -17,8 +17,6 @@ from app.crud.emails import get_email
 from app.crud.jobs import enqueue
 from app.db.session import SessionLocal
 from app.services import mailbox
-from app.services.analysis import analyze
-from app.services.evidence_history import index_confirmed_version
 from app.services.hr import process_submission
 from app.services.imports import process_email
 
@@ -39,6 +37,7 @@ def run_one(sessions=None):
     try:
         with sessions() as db:
             job = job_crud.get_job(db, job_id)
+            image_batch = None
             if job.kind == "ASSISTANT_GENERATE":
                 complete = assistant_jobs.execute(db, job)
                 job = job_crud.get_job(db, job_id)
@@ -75,16 +74,26 @@ def run_one(sessions=None):
                 enqueue(db, "SYNC", "mailbox-sync", {})
             elif job.kind == "IMPORT_EMAIL":
                 process_email(db, job.payload["email_id"])
+                from app.services.evidence_privacy import plan_import
+
+                image_batch = plan_import(db, job.payload["email_id"])
             elif job.kind == "ANALYZE":
-                analyze(db, job.payload["version_id"])
-            elif job.kind == "INDEX_EVIDENCE":
-                index_confirmed_version(db, job.payload["version_id"])
+                # Drain jobs created by older releases through the current privacy gate.
+                from app.services.evidence_privacy import plan_batch
+
+                version = case_crud.get_version(db, job.payload["version_id"])
+                if version and case_crud.get_analysis(db, version.id):
+                    image_batch = plan_batch(db, [version.id], analyze=True)
             elif job.kind == "HR_SUBMIT":
                 process_submission(db, job.payload["submission_id"])
             else:
                 raise ValueError("Unknown job kind")
             job.status, job.error, job.locked_at = "DONE", None, None
             db.commit()
+            if image_batch:
+                from app.services.image_background import defer
+
+                defer(db, image_batch)
     except Exception as error:
         # Log IDs and exception classes only; no email or evidence content.
         logger.warning("job_id=%s error_type=%s", job_id, type(error).__name__)
