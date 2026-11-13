@@ -1,5 +1,7 @@
 # Nghiên cứu bộ nhớ cho chatbot TallyV
 
+> Trạng thái đối chiếu 14/11/2026: đây là đề xuất mở rộng Chatbot, chưa có job trích xuất bộ nhớ hay kho mẩu nhớ dài hạn trong implementation hiện tại. Không cấu hình queue hoặc model theo đề xuất bên dưới để vận hành chấm công. Xem [Chatbot đang chạy](chatbot-retrieval.md) và [phạm vi các module](architecture.md). Các nguồn upstream là snapshot nghiên cứu, chưa được rà soát lại trong đợt đồng bộ docs.
+
 ## Hiện trạng
 
 `POST /api/chatbot/employee/ask` nhận một câu hỏi và gọi trực tiếp `answer_question`. Giao diện giữ các lượt hỏi đáp trong `useState`; backend không nhận lịch sử hay ID hội thoại. PostgreSQL + pgvector đã có trong Compose. Module Assistant có mô hình hội thoại riêng. [API chatbot](../app/chatbot/employee_api.py) · [Widget](../frontend/src/chatbot/EmployeeChatWidget.tsx) · [Compose](../compose.yaml) · [Dịch vụ hội thoại Assistant](../app/assistant/services/conversations.py)

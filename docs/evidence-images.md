@@ -1,37 +1,32 @@
 # Phạm vi bằng chứng ảnh của TallyV
 
-## Các loại ảnh đầu vào cần hỗ trợ
+Đối chiếu ngày 14/11/2026. Đánh giá chấm công hiện chỉ dùng **tiền xử lý PII offline → VLM trên bản ảnh đã xử lý → HR rà soát**. Không còn OCR, LLM phân loại văn bản, JEV hoặc đối chiếu embedding ảnh lịch sử trong đường này.
 
-Theo nghiệp vụ đã làm rõ, bằng chứng có thể gồm:
+## Ảnh nào được xử lý tự động
 
-| Loại ảnh | Dữ liệu có thể trích từ ảnh nếu thực sự hiển thị | Phần cần đối chiếu hoặc HR kiểm tra |
-|---|---|---|
-| Ảnh chụp/lưu khi quét mặt vào tòa nhà | Ngày giờ, mã/tên nhân viên, máy/cổng, trạng thái do thiết bị hiển thị | Ảnh khuôn mặt riêng không cung cấp mã nhân viên bằng OCR; ghi nhận vào tòa nhà chưa đồng nghĩa đã ghi công |
-| Ảnh camera tại nơi làm việc | Timestamp, tên camera/vị trí, nội dung cảnh quan sát được | Không suy ra danh tính hay đủ cả ca/công số từ việc thấy người ngồi tại một thời điểm; HR đối chiếu người và bối cảnh |
-| Điện thoại chụp máy chấm công bị lỗi | Chữ/mã lỗi, trạng thái hiển thị, mã máy, ngày giờ nếu có | Một ảnh báo lỗi chưa tự chứng minh đúng thời điểm/lượt quét của nhân viên trong case |
+| Loại đầu vào | Xử lý hiện tại | Điều kiện gửi VLM |
+| --- | --- | --- |
+| Ảnh trực tiếp từ FaceID | Khớp profile `FACEID`; che vùng mặt, tên/mã và PII theo tọa độ, chỉ giữ vùng nghiệp vụ cho phép | Đúng kích thước, khớp duy nhất profile đã bật và anchor tĩnh; bản PNG mới qua kiểm tra toàn vẹn |
+| Ảnh màn hình thiết bị báo lỗi | Khớp profile `DEVICE_ERROR`; che PII và chỉ giữ vùng thông báo nghiệp vụ | Cùng điều kiện profile và toàn vẹn; mọi vùng có thể chứa mặt cũng phải được che hoặc nằm ngoài vùng giữ |
+| Ảnh CCTV, điện thoại chụp cảnh, bố cục lạ hoặc chưa cấu hình | `MANUAL_REVIEW` | Không gửi VLM, không có nút cho phép bỏ qua |
+| File hỏng, ảnh trống, sai kích thước, khớp nhiều profile hoặc không còn bằng chứng sau che | `MANUAL_REVIEW` | Không tạo bản ảnh được phép gửi model |
 
-Không mặc định mọi ảnh đều có đủ các trường trên. Thông tin không hiển thị phải để là chưa xác định, không tạo từ giải trình hoặc phỏng đoán của model rồi coi là quan sát từ ảnh.
+`DEVICE_ERROR` là ảnh có bằng chứng lỗi thiết bị trong bố cục đã hỗ trợ. Nó không có nghĩa mọi ảnh đen, nhiễu hoặc hỏng file đều chứng minh máy chấm công gặp sự cố. Thống kê độ sáng/Laplacian không chứng minh ảnh không chứa người hoặc không còn PII.
 
-## Phân biệt OCR và hiểu ảnh
+Profile mặc định rỗng nên mọi ảnh chờ nhân viên. Không nhận diện mặt bằng Haar, deep learning hoặc model từ xa. Mặt nạ cố định phụ thuộc vùng đã cấu hình; không cam kết chính xác 100% trên ảnh ngoài bố cục đã nghiệm thu. Xem [package xử lý ảnh](../image-preprocessing/README.md).
 
-OCR đọc phần chữ/số: timestamp, nhãn mã nhân viên, thông báo lỗi. Nhận biết đây là cảnh camera, màn hình quét mặt hay ảnh chụp lỗi thiết bị cần thêm xử lý nội dung ảnh; OCR thuần không bao phủ yêu cầu này.
+## Ranh giới dữ liệu và kết quả
 
-Hướng xử lý bằng chứng: **nhận ảnh → nhận dạng loại bằng chứng → đọc chữ nếu có + mô tả quan sát phù hợp → trích thông tin có nguồn rõ ràng → đối chiếu với case → trình HR kết quả và những điểm chưa xác minh**.
+Backend giữ ảnh gốc trong storage riêng tư để HR xem. Package tạo mảng pixel đen, chép `keep_regions`, che đè mặt/PII và xuất PNG mới không chép metadata nguồn. Adapter lưu file UUID riêng, revision cấu hình và SHA-256. VLM chỉ nhận bản này sau khi toàn bộ lượt tiền xử lý hoàn tất; không nhận ảnh gốc, dữ liệu OCR cũ hoặc chỉ mục lịch sử.
 
-Không đánh đồng ảnh ít/không có chữ với ảnh không dùng được. Tách riêng trạng thái đọc chữ, chất lượng ảnh và khả năng đối chiếu nghiệp vụ. Model nhìn thấy người/cảnh chỉ là quan sát, không phải kết luận danh tính, thời gian làm việc hay duyệt công.
+Giải trình được lọc bằng từ vựng cho phép và loại bỏ định danh; mô tả quy tắc HR có thông tin định danh được phát hiện sẽ bị chặn. Bộ lọc có thể làm mất ngữ nghĩa, cần HR kiểm tra kết quả. Đây không phải bước xác minh pháp lý rằng mọi nội dung đã được ẩn danh tuyệt đối.
 
-Nếu có mã/tên được thiết bị hiển thị thì trích từ chữ và ghi rõ nguồn là màn hình thiết bị. Nếu chỉ có khuôn mặt, bản hiện tại để HR đối chiếu hoặc cần log quét chính thức; chưa có yêu cầu triển khai đối sánh sinh trắc khuôn mặt.
+VLM trả phân loại nguyên nhân và, với từng ảnh, `SUPPORTS`, `CONTRADICTS` hoặc `INSUFFICIENT`, kèm quan sát và giới hạn. Không suy ra danh tính, thời gian làm việc cả ca hoặc thành công của lượt chấm công chỉ từ khuôn mặt/cảnh. Nội dung bị che không được đoán lại. Thiếu ảnh hợp lệ dẫn tới `MANUAL_REVIEW`; lỗi provider/schema dẫn tới `FAILED`, không chuyển sang engine văn bản.
 
-## Giới hạn của bản đang chạy
+Hồ sơ có cả ảnh hợp lệ và ảnh cần nhân viên chỉ gửi phần hợp lệ; kết quả vẫn thiếu căn cứ và không đủ duyệt lô. HR có thể xác nhận ngoại lệ riêng lẻ sau khi xem nguồn, chọn phân loại và nhập lý do theo API review. Việc xác nhận thủ công không cấp quyền gửi ảnh bị chặn lên VLM.
 
-`app/services/analysis.py::read_evidence` đang gọi Tesseract với `lang="eng"`, rồi tìm mã mẫu `MPxxx`, ngày ISO và một số từ khóa tiếng Anh. Cơ chế này chỉ được thử với ảnh giả lập có chữ rõ; chưa đáp ứng đầy đủ ba dạng ảnh nghiệp vụ trên. Đánh dấu loại `CAMERA` hiện dựa trên chữ CAMERA trong text, không phải model nhận biết cảnh.
+## Chạy và nghiệm thu
 
-Ollama tùy chọn hiện chỉ nhận giải trình và kết quả kiểm tra bằng chứng, không nhận ảnh gốc. Bật `LOCAL_LLM` không tự bổ sung khả năng hiểu ảnh. Chưa có bộ nhận diện loại ảnh, model vision, mô hình đối sánh khuôn mặt, suy luận đủ công hay API nhập công số SAP.
+Xem [cấu hình profile, background async và API](vlm-evidence.md). Dùng ảnh giả lập đại diện cho từng thiết bị/phiên bản UI, cả trường hợp lệch bố cục, nhiều mặt, watermark đổi chỗ và không có bằng chứng sau che. Kiểm tra các pixel được giữ lại và metadata đầu ra trước khi bật profile.
 
-## Trước khi thay bộ phân tích
-
-- Chuẩn bị ảnh mẫu giả lập có bố cục đại diện cho ba loại bằng chứng, có/không có chữ, timestamp và thông tin nhân viên.
-- Ghi đáp án ở mức thông tin quan sát được, thông tin cần trích và điểm chưa xác minh; không tạo đáp án duyệt công từ ảnh đơn lẻ.
-- Kiểm tra chất lượng đọc tiếng Việt, ảnh chụp lệch/mờ/phản sáng và các định dạng ngày giờ thực tế.
-- Chọn engine OCR và phương án hiểu ảnh dựa trên kết quả đo, giới hạn máy yếu và ngân sách hiện tại. Không tự tải model lớn hoặc gửi ảnh lên cloud trong bước làm rõ yêu cầu.
-- Giữ HR ở bước xác nhận và tách việc đánh giá bằng chứng khỏi quy tắc nhập nghiệp vụ SAP theo từng kiểu case.
+Tests kiểm tra không gửi ảnh thô, chỉ gửi phần đã xử lý, chặn checksum/revision sai, chờ toàn bộ tiền xử lý và giữ duyệt lô nguyên tử. Chưa có benchmark VLM trên ảnh bệnh viện thật; xem [trạng thái kiểm thử](verification.md).

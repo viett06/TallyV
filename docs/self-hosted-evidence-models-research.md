@@ -1,8 +1,10 @@
 # Nghiên cứu OCR và hiểu ảnh bằng chứng tự vận hành cho TallyV
 
+> Snapshot nghiên cứu ngày 01/11/2026, giữ để tham khảo. Từ 14/11/2026, đề xuất OCR/hiểu cảnh và ranh giới implementation mô tả bên dưới không còn là luồng đánh giá đang chạy. Hiện tại dùng [tiền xử lý PII offline rồi VLM](vlm-evidence.md); không dùng OCR, JEV hoặc embedding lịch sử trong đánh giá. Nguồn và benchmark upstream bên dưới chưa được kiểm tra lại trong đợt đồng bộ docs này.
+
 Ngày đối chiếu nguồn: **01/11/2026**. Phạm vi: demo ý tưởng trong ba tuần, ngân sách dịch vụ bằng 0, máy cá nhân hạn chế tài nguyên; hướng tới dữ liệu nhạy cảm trong bệnh viện. Đây là đánh giá ứng viên, chưa phải kết quả kiểm thử trên ảnh thực tế của bệnh viện hoặc xác nhận đủ điều kiện triển khai.
 
-Hiện TallyV gọi Tesseract local với `lang="eng"` và tìm một số mã/ngày/từ khóa trong chữ đọc được; chưa có model hiểu cảnh nhận ảnh gốc. Việc Docker có cài gói tiếng Việt chưa đồng nghĩa hàm OCR hiện sử dụng nó. Nguồn: [analysis.py](../app/services/analysis.py), [Dockerfile](../Dockerfile).
+Tại thời điểm khảo sát, TallyV gọi Tesseract local với `lang="eng"` và tìm một số mã/ngày/từ khóa trong chữ đọc được; chưa có model hiểu cảnh nhận ảnh gốc. Việc Docker có cài gói tiếng Việt chưa đồng nghĩa hàm OCR hiện sử dụng nó. Nguồn: [analysis.py](../app/services/analysis.py), [Dockerfile](../Dockerfile).
 
 ## Kết luận đề xuất
 
@@ -73,7 +75,7 @@ Chưa benchmark hay tải model trong đợt nghiên cứu này. Khuyến nghị
 
 Đã kiểm tra thêm weight card của ba detector tương ứng: [v6 small](https://huggingface.co/PaddlePaddle/PP-OCRv6_small_det), [v6 tiny](https://huggingface.co/PaddlePaddle/PP-OCRv6_tiny_det), [v5 mobile](https://huggingface.co/PaddlePaddle/PP-OCRv5_mobile_det) đều khai báo Apache-2.0. Vẫn cần giữ license và khóa đúng revision của artifact thực tế được triển khai.
 
-## Cách đưa vào luồng TallyV — đề xuất, chưa triển khai
+## Phương án tích hợp từng được đề xuất — đã thay thế
 
 1. Nhập Excel và ảnh vào hệ thống như luồng đã thống nhất; bước nhập không tự chạy đánh giá/phân loại.
 2. Khi HR bấm **Đánh giá và phân loại**, OCR đọc chữ theo vùng. Mã nhân viên, thời gian, lỗi chỉ lấy khi nhìn thấy; thiếu thì giữ `null`.
@@ -117,7 +119,7 @@ Không cần gửi dữ liệu bệnh viện để chọn shortlist. Tạo bộ 
 - **Trích xuất:** field precision/recall và tỷ lệ điền sai trường vốn không có. Đặc biệt đếm mọi timestamp/mã nhân viên bị bịa; không chỉ báo một điểm OCR chung.
 - **Ngữ cảnh ảnh:** nhầm loại bằng chứng, nhận sai thông báo lỗi/thành công, mô tả không có trong ảnh, bỏ sót tình huống cần HR kiểm tra. Không chấm khả năng đoán danh tính từ mặt.
 - **Vận hành:** thời gian nạp model; p50/p95 giây/ảnh sau warm-up; peak RAM/VRAM; 1 ảnh/lần với kích thước đầu vào ghi rõ; tỷ lệ lỗi/timeout.
-- **So sánh công bằng:** cùng ảnh và cách crop, báo cả chi phí tiền xử lý; Tesseract hiện tại, v5 Latin, v6 small/tiny và VLM tùy chọn nhận cùng tập kiểm tra. Lưu model revision, runtime, tham số crop/resize và lượng tử hóa.
+- **So sánh công bằng:** cùng ảnh và cách crop, báo cả chi phí tiền xử lý; Tesseract của bản cũ, v5 Latin, v6 small/tiny và VLM tùy chọn nhận cùng tập kiểm tra. Lưu model revision, runtime, tham số crop/resize và lượng tử hóa.
 
 Mục tiêu demo đề xuất: mọi trường không đọc được có thể chuyển HR kiểm tra; không có hành động cập nhật công tự động từ ảnh; không có kết luận danh tính/đủ ca. Nếu dữ kiện quan trọng bị bịa trong tập kiểm tra, thu hẹp phạm vi hỗ trợ và giữ HR đọc ảnh. Qua tập giả lập chỉ chứng minh được luồng demo; chưa đủ để tuyên bố an toàn/đúng trên bệnh viện thật.
 
@@ -125,7 +127,7 @@ Mục tiêu demo đề xuất: mọi trường không đọc được có thể 
 
 Self-host cho phép đặt bước suy luận trong hạ tầng do mình kiểm soát; **không phải chứng nhận bảo mật cho cả TallyV**. Các mục dưới đây là thiết kế đề xuất, chưa được triển khai hoặc kiểm định trong đợt research này.
 
-### Ranh giới dữ liệu hiện tại của TallyV
+### Ranh giới dữ liệu ghi nhận tại thời điểm khảo sát
 
 Cấu hình local được kiểm tra đang dùng Outlook qua Composio và bật chế độ thử nghiệm. `ComposioClient.graph_json` gọi proxy của Composio; provider lấy cả nội dung email và bytes tệp đính kèm qua đường này. Vì vậy, đổi riêng OCR sang model local vẫn chưa làm toàn bộ luồng dữ liệu thành nội bộ. Cần thẩm định hoặc thay đường nhận thư trước khi dùng dữ liệu thật của bệnh viện. Nguồn code: [client](../app/services/composio_client.py), [provider](../app/services/composio_provider.py), [chọn transport](../app/services/mailbox.py).
 
@@ -152,7 +154,7 @@ Không cần cài cả ba runtime. Chọn runtime hỗ trợ chính xác checkpo
 
 Nếu chọn Ollama trên Mac, lưu ý tài liệu nêu Docker Desktop macOS không hỗ trợ GPU passthrough. Không dùng kết quả chạy native để hứa tốc độ tương tự trong container CPU. [Ollama FAQ](https://docs.ollama.com/faq).
 
-### Phù hợp với điều kiện demo hiện tại
+### Đề xuất theo điều kiện demo tại thời điểm khảo sát
 
 Model có thể tải miễn phí không có nghĩa là GPU cloud miễn phí. Với máy yếu và ngân sách bằng 0, ưu tiên thử OCR trên CPU, xử lý từng ảnh; phần hiểu cảnh chỉ chạy khi có tài nguyên phù hợp và cho phép chuyển HR xem lại khi chưa chạy được. Dùng ảnh giả lập trong demo; chưa có hạ tầng riêng được phê duyệt thì chưa dùng ảnh thật của bệnh viện. Đợt research này không tải weights, chạy benchmark hoặc truyền ảnh bằng chứng ra ngoài.
 

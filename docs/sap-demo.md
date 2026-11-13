@@ -23,7 +23,7 @@ Giải pháp không bị chốt trước thành API sửa giờ vào/ra hoặc b
 ## Quy trình TallyV hiện tại
 
 1. Quét Outlook, tiếp nhận email và đọc Excel vào hệ thống.
-2. HR bấm **Đánh giá và phân loại** để chạy phân tích; quét email không tự đánh giá.
+2. Sau import, tiền xử lý PII chạy nền. HR bấm **Đánh giá và phân loại** để chờ toàn bộ lượt xử lý xong rồi gọi VLM trên ảnh hợp lệ; ảnh chưa hỗ trợ chuyển cho nhân viên và bị chặn model. Quét email không tự đánh giá AI. Xem [luồng PII/VLM](vlm-evidence.md).
 3. HR đọc nguồn/bằng chứng, xem phân loại, xử lý bản sửa và lưu kết luận rà soát.
 4. Xem lịch sử và xuất kết quả. HR hiện vẫn dùng kết quả để nhập lên SAP; việc xác nhận trong TallyV chưa thực hiện bước nhập đó.
 

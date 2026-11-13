@@ -20,6 +20,8 @@ New weekly subjects declare the payroll period and Saturday request date:
 [DCC] [2026-11] [WEEK:2026-10-31] Synthetic department summary
 ```
 
+For Outlook test mode, also include `[TALLYV-MVP]` alongside `[DCC]`; the example above is the Mailpit subject form. Mailbox import starts offline PII preprocessing after commit, while VLM assessment is a separate HR action. The same period/cycle filters scope both processing endpoints. See the [image pipeline](vlm-evidence.md).
+
 The weekly tag must identify a Saturday between the declared period's 26th and 25th. Invalid, ambiguous or mismatched tags require manual review. Receipt timestamps never determine the cycle, so late replies retain their declared cycle.
 
 Workbook attendance dates must also fall within the declared payroll period. September 26 and October 25 are valid for October payroll; September 25 and October 26 are rejected for that period. An out-of-period row is reported as an error rather than silently imported under the wrong payroll month.

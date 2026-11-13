@@ -1,9 +1,9 @@
 # Thiết kế hệ thống TallyV Assistant
 
 Ngày: 2026-11-04  
-Trạng thái: đã triển khai phạm vi MVP gồm data task, công cụ có kiểu dữ liệu, checkpoint SQL, HR review, rule memory và xuất Excel/Word. Hướng dẫn chạy, giới hạn và đối chiếu triển khai nằm tại [docs/assistant.md](assistant.md). Các mục mở rộng trong tài liệu này không mặc nhiên là tính năng đã có.
+Trạng thái đối chiếu 14/11/2026: tài liệu thiết kế và snapshot ban đầu, không phải mô tả đầy đủ implementation hiện tại. Data task, công cụ có kiểu dữ liệu, checkpoint SQL, HR review và xuất Excel/Word đã có; chế độ Hybrid cũng có LangGraph và runner tùy chọn. Hướng dẫn cấu hình, dispatch theo chế độ và giới hạn đã triển khai nằm tại [assistant.md](assistant.md).
 
-Thiết kế đích mới cho hướng LangGraph và Code Interpreter được mô tả tại [đặc tả workflow agent](assistant-agent-workflow.md). Khi lập kế hoạch phiên bản tiếp theo, dùng đặc tả đó cho phần điều phối, sandbox, vòng sửa và các gate kiểm chứng; phần hiện trạng Microsoft Agent Framework ở tài liệu này vẫn mô tả implementation đang có.
+[Đặc tả workflow agent](assistant-agent-workflow.md) ghi hướng Hybrid và các yêu cầu mở rộng. Những sơ đồ, tên module đề xuất, bảng “hiện tại” và lộ trình bên dưới giữ ngữ cảnh thiết kế ngày 04/11/2026, không xác nhận rằng mọi mục đã được triển khai hoặc chỉ còn một runtime. Phạm vi này là Assistant; đường đánh giá chấm công đã chuyển sang [PII/VLM background](vlm-evidence.md), không dùng LLM văn bản/OCR/JEV.
 
 ## 1. Mục tiêu và ý nghĩa của việc tham khảo Microsoft
 
@@ -324,9 +324,9 @@ Một prompt có thể tạo nhiều artifact. Kết quả nên có cảnh báo 
 - Việc chọn model và nơi chạy là quyết định triển khai theo chính sách dữ liệu. Không tự chuyển từ model nội bộ sang dịch vụ ngoài khi có lỗi.
 - MVP tiếp tục dùng dữ liệu giả; chuyển sang dữ liệu bệnh viện cần đánh giá và phê duyệt theo quy trình của viện. Dùng kiến trúc Microsoft không tự chứng minh tuân thủ JCI hoặc mọi yêu cầu bảo mật.
 
-## 13. Khác biệt so với Assistant hiện tại
+## 13. So sánh với Assistant trước đợt triển khai data task
 
-Đối chiếu tại thời điểm đọc code, không phải các chức năng vừa được triển khai:
+Snapshot thiết kế 04/11/2026; cột đầu mô tả bản trước data task, không phải implementation hiện nay:
 
 | Hiện tại | Cần thiết cho mục tiêu mới |
 | --- | --- |

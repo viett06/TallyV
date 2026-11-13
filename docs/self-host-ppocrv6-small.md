@@ -1,4 +1,6 @@
-# Tự vận hành PP-OCRv6 small bằng CPU
+# Nghiên cứu cũ: tự vận hành PP-OCRv6 small bằng CPU
+
+> Trạng thái ngày 14/11/2026: tài liệu thử nghiệm lịch sử, không còn là phương án tích hợp đánh giá chấm công. Backend đã bỏ client OCR và chỉ dùng [PII → VLM](vlm-evidence.md). Các phiên bản, liên kết và đề xuất bên dưới là snapshot nghiên cứu ngày 01/11/2026, chưa được rà soát lại theo upstream. Mã service độc lập thực tế được mô tả tại [ocr-api.md](ocr-api.md).
 
 Đối chiếu nguồn ngày **01/11/2026**. Hướng dẫn demo riêng, **chưa cài đặt/chạy thử** tổ hợp dưới đây. Chưa sửa OCR hoặc worker của TallyV. Chỉ dùng ảnh giả lập trong bước kiểm chứng.
 
@@ -120,15 +122,15 @@ Sau khi một lần chạy thành công, tắt kết nối mạng của môi tr�
 
 Tắt Wi-Fi là phép thử demo đơn giản. Môi trường dùng dữ liệu bệnh viện cần cô lập mạng do đơn vị vận hành quản lý; giữ quyền đọc weights, chỉ cho ghi output/cache cần thiết, không công khai cổng suy luận. Script này chưa thực hiện các cấu hình hạ tầng đó. JSON và terminal log có thể chứa chữ nhạy cảm; ảnh giả là lựa chọn cho giai đoạn thử.
 
-## 4. Nối vào TallyV sau khi thử đạt
+## 4. Trạng thái tích hợp hiện tại
 
-Đây là thiết kế đề xuất, chưa viết service: nạp model một lần trong worker/service nội bộ, nhận ảnh local, trả `text + boxes + scores + model_version`; TallyV gọi khi HR bấm **Đánh giá và phân loại**. Trước tiên đo độ đúng timestamp/mã/lỗi, peak RAM và giây/ảnh trên máy thật. Dùng các kết quả đó để chọn số worker/giới hạn ảnh, không lấy kích thước weights làm RAM dự kiến.
+Phương án nối OCR trực tiếp vào ảnh bằng chứng đã được bỏ. Không thêm OCR vào bước tiền xử lý và không gửi ảnh gốc cho model để tìm PII. Package [image-preprocessing](../image-preprocessing/README.md) che theo bố cục cố định, không dùng AI; ảnh chưa hỗ trợ chuyển cho nhân viên.
 
-Không đưa ảnh bệnh viện vào luồng đang đi qua dịch vụ trung gian chỉ vì OCR đã chạy local. Xem ranh giới bảo mật và giới hạn hiểu ảnh trong [bản nghiên cứu trước](/Users/levanviet/Documents/Workspace/vinmec/TallyV/docs/self-hosted-evidence-models-research.md).
+Service PP-OCR còn trong repo chỉ là công cụ thử riêng. Cấu hình, hợp đồng và giới hạn hiện có nằm tại [ocr-api.md](ocr-api.md). Phần fine-tune dưới đây là kiến thức nghiên cứu lịch sử, không phải kế hoạch đang triển khai.
 
 ## Có cần fine-tune hoặc tự train không?
 
-**Đề xuất cho demo TallyV: dùng pretrained model trước, chưa fine-tune và chưa train từ đầu.** Đây là quyết định theo phạm vi ba tuần/ngân sách, không phải khẳng định model có sẵn sẽ đạt yêu cầu trên mọi ảnh bệnh viện.
+**Đề xuất ở thời điểm nghiên cứu: dùng pretrained model trước, chưa fine-tune và chưa train từ đầu.** Đây là quyết định theo phạm vi ba tuần/ngân sách, không phải khẳng định model có sẵn sẽ đạt yêu cầu trên mọi ảnh bệnh viện.
 
 - **Inference/self-host:** tải weights có sẵn, đưa ảnh mới vào, nhận vùng chữ và nội dung đọc được. Việc xử lý thêm ảnh không tự cập nhật weights; không cần huấn luyện lại cho từng ảnh.
 - **Fine-tune:** tiếp tục huấn luyện weights có sẵn bằng dữ liệu đã gán nhãn của bài toán riêng.

@@ -1,5 +1,7 @@
 # Tham chiếu giao diện Vinmec cho TallyV
 
+> Trạng thái tài liệu: snapshot tham chiếu giao diện ngày 11/11/2026; không mô tả phần mềm nội bộ của Vinmec hoặc thay thế hướng dẫn sử dụng. Luồng đang chạy và trạng thái ảnh được mô tả tại [README](../README.md) và [PII/VLM](vlm-evidence.md).
+
 Rà soát nguồn công khai ngày 11/11/2026. Phạm vi là giao diện quản lý hồ sơ giải trình công của TallyV.
 
 ## Căn cứ công khai

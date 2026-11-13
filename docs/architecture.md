@@ -1,117 +1,98 @@
-# Kiến trúc backend TallyV
+# Kiến trúc TallyV
 
-Cấu trúc tham khảo Docentra local: `app/api`, `app/schema`, `app/services`, `app/core`, `app/db`, model theo từng bảng, và model registry dành cho Alembic. TallyV giữ tên `app/models` (số nhiều) và thêm `app/crud` theo các folder được tạo sẵn trong dự án.
+Đối chiếu mã nguồn ngày 14/11/2026. TallyV gồm ba module dùng chung xác thực, PostgreSQL và kho file riêng tư: rà soát chấm công, Assistant và Chatbot quy định. Mỗi module có đường gọi AI riêng; việc bỏ LLM văn bản/OCR/JEV trong đánh giá chấm công không loại bỏ AI của Assistant hoặc Chatbot.
 
-## Luồng xử lý
+## Luồng chấm công
 
 ```text
-HTTP request
-  → app/api + app/schema       xác thực HTTP, validate request/response
-  → app/services               điều kiện nghiệp vụ, audit, transaction của thao tác HR
-  → app/crud                   truy vấn, bộ lọc, phân trang, khóa dòng
-  → app/models + app/db        bảng SQLAlchemy, session, kết nối PostgreSQL
+Email → SYNC → IMPORT_EMAIL → Excel/ảnh gốc trong kho riêng tư
+                             → hồ sơ, phiên bản, kết quả NOT_STARTED
+                             → commit → tiền xử lý PII chạy nền, chưa gọi VLM
 
-Worker
-  → app/crud/jobs              claim job có lease / SKIP LOCKED
-  → app/services               nhập email/Excel hoặc phân tích
-  → commit toàn bộ job         thất bại thì rollback và retry
-
-Alembic
-  → app/db/config.py           DATABASE_URL; không cần settings tài khoản web
-  → app/db/base_model.py       nạp toàn bộ models vào Base.metadata
-  → alembic/versions           áp dụng lịch sử migration
+HR yêu cầu đánh giá → BackgroundTasks → run_batch
+  → xử lý PII offline cho toàn bộ lượt hồ sơ
+  → kiểm tra revision cấu hình, manifest và checksum các bản ảnh
+  → VLM chỉ nhận ảnh đã xử lý hợp lệ + giải trình đã lọc + quy tắc HR
+  → kết quả đề xuất → HR rà soát, xác nhận, xuất Excel
 ```
 
-## Trách nhiệm từng folder
+Nhập email không tự đánh giá bằng AI. Tạo hồ sơ qua API có ảnh cũng chỉ lên lịch tiền xử lý. `POST /api/analysis` và `POST /api/cases/{id}/reanalyze` chạy tiền xử lý trước rồi đánh giá. `POST /api/privacy/preprocess` chỉ xử lý PII. Phạm vi hàng loạt gồm cả phiên bản sửa `PROPOSED` theo bộ lọc hiện có.
 
-Quét email chỉ lên lịch `IMPORT_EMAIL`. Nhập Excel tạo trường hợp, phiên bản và kết quả với trạng thái `NOT_STARTED` / `NOT_EVALUATED`; không lên lịch phân tích. HR nhấn **Đánh giá và phân loại** (`POST /api/analysis`) để lên lịch `ANALYZE` cho các phiên bản chưa đánh giá hoặc bị lỗi trong phạm vi đã chọn, gồm cả bản sửa `PROPOSED`. `GET /api/analysis` trả số lượng chờ/đang xử lý/hoàn tất/lỗi và trạng thái tiếp nhận. Đổi quy tắc chỉ làm mất hiệu lực kết quả, cần thao tác đánh giá riêng để chạy lại.
+Chỉ hai nhóm bố cục `FACEID` và `DEVICE_ERROR` đã cấu hình được phép tạo ảnh gửi model. Profile mặc định rỗng chặn tất cả ảnh. Ảnh không khớp bố cục, file hỏng hoặc PII chưa xử lý được chuyển cho nhân viên. Hồ sơ trộn ảnh hợp lệ và ảnh chưa hỗ trợ chỉ gửi phần hợp lệ cho VLM, vẫn có điều kiện thiếu và không được duyệt lô. Không có thao tác cho phép bỏ qua tiền xử lý. Xem [phạm vi bằng chứng](evidence-images.md) và [chi tiết PII/VLM](vlm-evidence.md).
 
-| Folder/file | Chứa | Không đặt tại đây |
-|---|---|---|
-| `main.py` | `create_app`, đăng ký middleware, AppError handler, router và frontend static | SQL, điều kiện duyệt, đọc workbook |
-| `app/api` | APIRouter theo auth/catalog/cases/emails/files/jobs/rules/health; Depends; cookie; HTTP file/stream response | Logic duyệt, tạo phiên bản, câu SQL |
-| `app/api/deps.py` | `DBSession`, `HRUser`, `Filters`; lấy session/user cho request | Commit hoặc chỉnh nội dung case |
-| `app/schema` | Request/response Pydantic, bộ lọc, schema JSON từ model | ORM table, gọi database/network |
-| `app/services` | Nghiệp vụ, trả dữ liệu cho router, staging thay đổi ORM, audit, transaction của HR | FastAPI Request/Response/Depends hoặc câu SQL |
-| `app/crud` | Truy vấn, join, filter, phân trang, aggregate và khóa bản ghi | HTTPException, commit, gửi email, gọi OCR/LLM |
-| `app/models` | SQLAlchemy table mapping, index, constraint, foreign key, default | Session, FastAPI, gọi dịch vụ |
-| `app/db` | Declarative Base, URL kết nối, engine, SessionLocal và model registry | Nghiệp vụ HR hoặc secret đăng nhập web |
-| `app/core` | Settings, AppError, middleware, timestamp và chuyển dữ liệu JSON | Query nghiệp vụ |
-| `app/demo` | Danh mục và generator hoàn toàn mô phỏng | Đầu vào có hồ sơ thật hoặc đáp án cho bộ phân loại |
-| `scripts` | CLI gọi vào app; các kiểm tra/evaluation/reset local | Logic route hoặc được worker import làm thư viện |
-| `app/worker.py` | Dispatch công việc, transaction job, retry và scheduler | Câu SQL chọn job hoặc import CLI scripts |
+## Trách nhiệm module
 
-Health endpoint chỉ thực hiện probe database qua CRUD; không có quy trình nghiệp vụ cần service ở giữa.
+| Folder/file | Trách nhiệm |
+| --- | --- |
+| `main.py`, `app/api` | FastAPI, middleware, xác thực HTTP, router, file response và frontend đã build |
+| `app/schema` | Pydantic request/response, bộ lọc, hợp đồng kết quả VLM và DTO truyền giữa các hàm nền |
+| `app/services` | Nghiệp vụ, audit, transaction thao tác HR, adapter storage và điều phối xử lý |
+| `app/crud` | Truy vấn, bộ lọc, phân trang, aggregate và row lock; không commit hoặc gọi model |
+| `app/models`, `app/db` | SQLAlchemy mapping, registry, engine, session và metadata Alembic |
+| `app/core`, `app/demo` | Cấu hình dùng chung, lỗi, thời gian, locale; danh mục và dữ liệu giả lập |
+| `image-preprocessing/` | Package Python độc lập, xử lý pixel offline; không import app, DB, HTTP hoặc model AI |
+| `app/assistant`, `app/chatbot` | Nghiệp vụ và AI riêng của Assistant/Chatbot |
+| `app/worker.py` | Queue PostgreSQL hiện có cho email, demo, Assistant và backend HR mô phỏng |
+| `scripts` | CLI quản trị, sinh demo và công cụ kiểm tra; kiểm tra phạm vi từng script trước khi chạy |
+| `frontend` | React, TypeScript, Vite; các workspace dùng chung shell |
 
-## Các module nghiệp vụ chính
+Các module chính của đường ảnh:
 
-- `services/cases.py`: điều kiện đủ duyệt, kết luận HR, duyệt lô nguyên tử, quyết định bản sửa, phân tích lại và audit. Row lock được lấy qua `crud/cases.py` trước khi thay trạng thái.
-- `services/imports.py`: tiếp nhận email đúng phạm vi, nhập từng file, nhập được dòng hợp lệ dù có dòng lỗi, chống trùng, đề xuất phiên bản mới. Không tự commit giữa một job.
-- `services/excel.py`: kiểm tra XLSX, ngày, công thức, giới hạn giải nén và liên kết ảnh. Không import DB, ORM hoặc HTTP client; có thể kiểm thử bằng bytes workbook.
-- `services/analysis.py`: đề xuất nguyên nhân bằng quy tắc/Ollama, OCR local và kiểm tra đủ/thiếu/mâu thuẫn. Schema model nằm ở `schema/analysis.py`. Module không tự xác nhận HR.
-- `services/exports.py`: dựng workbook và ép giá trị nguồn thành string để chống công thức. Router `api/files.py` chịu trách nhiệm HTTP StreamingResponse.
-- `services/email_provider.py`: EmailProvider interface và Mailpit adapter nội bộ.
-- `services/auth.py`: kiểm tra tài khoản, giới hạn thử đăng nhập, giải mã session và kiểm tra role. `api/deps.py` chuyển cookie HTTP thành lời gọi nghiệp vụ.
-- `services/security.py`: password hash/verify và session signer. `services/storage.py`: lưu/đọc/xóa file qua local hoặc S3 (MinIO/AWS), tên UUID và SHA-256. Các module nhập Excel, tải file và OCR chỉ nhận bytes, không phụ thuộc đường dẫn máy. Xem [kho object](object-storage.md).
-- `services/hr.py`: chuẩn bị giá trị điều chỉnh, kiểm tra kết luận/phiên bản, tạo yêu cầu bất biến, gửi từ worker và lưu audit/biên nhận. `services/hr_connector.py` chỉ phụ trách HTTP đến HR mô phỏng.
-- `hr_mock_app.py` và `services/mock_hr.py`: dịch vụ đích chạy riêng, sở hữu bảng công/biên nhận mô phỏng, khóa revision và khóa chống gửi trùng. Bản demo dùng chung PostgreSQL nhưng TallyV chỉ truy cập đích qua HTTP. Giao diện hiện chỉ giữ bảng công để tham khảo; màn hình gửi điều chỉnh đã bỏ theo phạm vi mới. Backend thử nghiệm gửi sửa giờ còn được giữ để tránh xóa dữ liệu, nhưng không phải mô hình tích hợp SAP đã được chấp nhận. Xem [phạm vi SAP](sap-demo.md).
+| Module | Trách nhiệm |
+| --- | --- |
+| `tallyv_image_preprocessing` | Giải mã, kiểm tra bố cục/anchor, giữ vùng nghiệp vụ, tô đen mặt/PII và xuất PNG mới |
+| `services/evidence_privacy.py` | Đọc profile, lập lượt xử lý, lưu `EvidencePrivacy`, xác minh và nạp bản ảnh đã xử lý |
+| `services/image_background.py` | Chạy hai giai đoạn qua asyncio; chờ toàn bộ tiền xử lý xong trước VLM |
+| `services/assessment_input.py` | Lọc định danh khỏi giải trình, chuẩn bị quy tắc HR; không gọi model |
+| `services/evidence_vlm.py` | Prompt đánh giá, kiểm tra category và một kết quả cho từng ảnh |
+| `services/evidence_vision.py` | HTTP transport tới Ollama, OpenRouter hoặc Qwen Cloud; chỉ nhận `SanitizedImage` |
+| `services/analysis.py` | Kiểm tra yêu cầu/revision, tổng hợp đủ/thiếu/mâu thuẫn và lưu kết quả; không tự xác nhận HR |
+| `services/cases.py`, `services/rules.py` | Quyết định HR, bản sửa, duyệt lô nguyên tử và hủy hiệu lực khi đổi quy tắc |
 
-## Transaction và lỗi
+Không còn client đánh giá LLM văn bản, OCR, Gemini/JEV hoặc đối chiếu MobileNet/cosine/SIFT trong đường đánh giá. Các cột/bảng lịch sử vẫn giữ, không được dùng làm đầu vào VLM hoặc điều kiện duyệt lô.
 
-CRUD không commit. Các thao tác HR và sửa rule commit trong service sau khi đã kiểm tra điều kiện và thêm audit. Nếu service phát sinh `AppError`, request giữ nguyên JSON lỗi `{"detail": ...}` và HTTP status như trước. Session kết thúc sẽ rollback phần chưa commit.
+## Background và queue
 
-Import/phân tích được gọi bởi worker. Worker commit phần claim job trước, rồi xử lý job trong session/transaction mới. Dữ liệu nghiệp vụ và trạng thái DONE được commit cùng nhau. Lỗi giữa chừng rollback và job được lên lịch retry, không tạo case/ảnh trùng. Một worker/scheduler duy nhất giữ advisory lock PostgreSQL.
+API đăng ký FastAPI `BackgroundTasks` sau response. `run_batch` đưa pixel, storage/DB và HTTP đồng bộ sang `asyncio.to_thread`; mỗi lần xử lý mở session riêng. Có giới hạn hai tác vụ xử lý pixel đồng thời trong mỗi process. Sau import email commit, worker gọi trực tiếp bộ chạy nền qua executor rồi asyncio. Không có broker, queue privacy/AI hoặc worker ảnh riêng.
 
-Response Pydantic giới hạn rõ các trường public. Đường dẫn file local không xuất hiện trong metadata ảnh/attachment; ảnh/file vẫn được phục vụ bằng endpoint có kiểm tra HR. Timestamp giữ biểu diễn ISO cũ (`+00:00`) để tương thích client và bản snapshot trước refactor.
+API không tạo job `ANALYZE` mới. Nhánh tương thích trong worker đưa job `ANALYZE` còn tồn từ bản cũ qua tiền xử lý hiện tại. Không còn lập chỉ mục `INDEX_EVIDENCE`. Theo dõi đánh giá qua `GET /api/analysis` và trạng thái PII từng ảnh, không chờ job ảnh trong `/api/jobs`.
 
-## Quản lý database bằng Alembic
+Background trong process không bảo đảm sống qua restart. Trạng thái và artifact lưu bền trong DB/storage, nhưng tác vụ không tự được phát lại như queue. Có thể lập lượt mới bằng `reanalyze?restart_background=true` sau khi xác định lượt cũ bị gián đoạn; request ID chặn lượt cũ ghi đè lượt mới. Đây là giới hạn hiện tại, queue tách privacy/AI là bước sau.
 
-`app/db/base.py` chỉ định nghĩa Base. Mỗi file trong `app/models` import cùng Base này; `app/models/__init__.py` đăng ký các lớp. `app/db/base_model.py` nạp registry và là nguồn `target_metadata` trong `alembic/env.py`.
+## Transaction và lưu trữ
 
-`app/db/config.py` đọc DATABASE_URL từ môi trường hoặc `.env`, chuẩn hóa `postgresql://` sang driver `postgresql+psycopg`. Không cần SECRET_KEY/DEMO_PASSWORD để import metadata. SQLite chỉ dùng cho kiểm thử cô lập; demo chạy PostgreSQL.
+CRUD không commit. Nghiệp vụ HR kiểm tra điều kiện, thêm audit rồi commit trong service. Worker commit claim trước, sau đó xử lý job trong session mới; dữ liệu import và trạng thái hoàn tất commit cùng nhau. Lỗi import rollback và retry theo lease/backoff. Một worker/scheduler giữ advisory lock PostgreSQL.
 
-Khi thêm/sửa bảng:
+Ảnh xử lý nền có transaction riêng theo giai đoạn; không nằm trong transaction HTTP hoặc import. Lỗi tiền xử lý chặn VLM cho cả lượt. Lỗi model không có fallback phân loại văn bản. Đổi rule hủy hiệu lực kết quả liên quan; kết quả VLM kiểm tra lại snapshot quy tắc trước khi lưu.
 
-1. Thêm/sửa model ở `app/models/<ten_bang>.py`.
-2. Nếu là model mới, đăng ký import và `__all__` trong `app/models/__init__.py`.
-3. Chạy `alembic revision --autogenerate -m "describe schema change"`.
-4. Đọc lại migration, đặc biệt thao tác drop/rename/backfill, trước khi áp dụng.
-5. Chạy `alembic upgrade head`, rồi `alembic check`.
+File dùng [storage local/S3](object-storage.md). Ảnh gốc giữ riêng với bản PNG đã che; DB lưu UUID, checksum và revision. Endpoint ảnh gốc và ảnh sau che đều yêu cầu HR; ảnh sau che không có fallback về ảnh gốc. Không mount storage công khai. Không có phân quyền bucket riêng giữa privacy và AI ở phiên bản này.
 
-Khi dùng Docker, thêm `docker compose exec api` trước lệnh Alembic. Lần refactor kiến trúc này không thay bảng/column/constraint nên giữ nguyên migration `305ed758b40c`, không tạo migration rỗng và không reset dữ liệu.
+## Database và cập nhật
 
-## Thêm một tính năng HTTP
+`app/db/base_model.py` nạp registry cho Alembic. Không dùng `create_all` để quản lý database đang chạy; SQLite dành cho tests, PostgreSQL cho ứng dụng. Chatbot dùng pgvector trên PostgreSQL.
 
-1. Định nghĩa request/response trong `app/schema`.
-2. Thêm query/row lock cần thiết vào `app/crud` theo chức năng.
-3. Viết điều kiện nghiệp vụ/audit trong `app/services`, xác định transaction cần commit ở service hay worker.
-4. Thêm route ở `app/api`, khai báo response_model và dùng `DBSession`/`HRUser`.
-5. Đăng ký router ở `app/api/__init__.py` nếu có file router mới.
-6. Kiểm thử hành vi qua endpoint hoặc interface của workflow; không dùng database demo cho unit tests.
+Các migration mới của đường ảnh là `628d41ef2b37` (thêm `evidence_privacy`) và `739e52fa3c48` (bỏ điều kiện quy tắc OCR cũ). Không xóa ảnh, text OCR hoặc kết quả lịch sử. Dùng `alembic heads` để kiểm tra head của checkout thay vì dựa vào số bảng hoặc head của tài liệu cũ.
 
-Không cần thêm generic repository, base service hoặc domain layer trống chỉ để chuyển tiếp lời gọi. Các query dùng chung có thể gọi trực tiếp repository đang sở hữu chúng.
+```sh
+venv/bin/python -m pip install -r requirements-dev.txt
+venv/bin/alembic heads
+# Trên database đã chọn và đã sao lưu theo quy trình triển khai:
+venv/bin/alembic upgrade head
+venv/bin/alembic check
+```
 
-## Tương thích và xác minh
+Alembic đọc `DATABASE_URL` qua `app/db/config.py` mà không cần cấu hình đăng nhập web. Docker API chạy migration và seed danh mục trước Uvicorn. Cài lại dependency và build lại image khi package con thay đổi; chỉ mount lại `app/` không cập nhật package đã cài trong image.
 
-- 23 thao tác API giữ nguyên method/path; frontend và cookie session tiếp tục tương thích.
-- 14 định nghĩa bảng, tên column, nullable, primary key, foreign key và default giữ nguyên.
-- 18 kiểm thử nghiệp vụ ban đầu giữ nguyên nội dung xác minh; cập nhật import theo package mới.
-- Bổ sung kiểm thử các read view sau partial import, contract AppError, timestamp ISO, và model registry không kéo theo web settings/session.
-- Các lệnh CLI `python -m scripts.seed_catalog`, `python -m scripts.send_demo`, `python -m app.worker` vẫn dùng được. Generator và danh mục hiện nằm trong `app/demo`; worker không import CLI.
-- Ruff được cấu hình ở `ruff.toml`; cài qua `requirements-dev.txt`.
+## Assistant, Chatbot và HR mô phỏng
 
-### Kết quả kiểm tra sau khi cập nhật Docker
+Assistant dùng `/api/assistant`, chủ sở hữu theo user, job `ASSISTANT_GENERATE` và cấu hình `ASSISTANT_*`. Chế độ Hybrid dùng LangGraph và runner tùy chọn; xem [hướng dẫn hiện tại](assistant.md). Không cần worker DraftV riêng.
 
-- `pytest`: **22 passed**; Ruff check/format và `git diff --check` đạt.
-- `docker compose exec api alembic check`: **No new upgrade operations detected**.
-- Snapshot trước/sau refactor khớp: **60 case, 10 email**, hash ảnh, audit, kết luận HR và job nghiệp vụ không đổi.
-- Smoke chỉ đọc trên PostgreSQL thật: validate cả **60 chi tiết case**, **10 chi tiết email**, bootstrap/dashboard/jobs/auth, bộ lọc kỳ **24/36**, xuất Excel theo bộ lọc **6 dòng**. Không sửa dữ liệu nghiệp vụ để kiểm tra.
-- API healthy và worker tiếp tục chạy tại `http://127.0.0.1:8000`.
+Chatbot HR và cổng `/employee` dùng kho PDF, OCR trang scan, embedding/BM25, rerank và model trả lời riêng. Những thành phần này vẫn tồn tại trong `app/chatbot`; xem [tra cứu quy định](chatbot-retrieval.md).
 
-## Module Assistant
+`hr_mock_app:app` và backend gửi điều chỉnh thử nghiệm còn được giữ để bảo toàn dữ liệu. Giao diện chính chỉ có bảng công mô phỏng tham khảo; chưa kết nối SAP thật. Xem [phạm vi SAP](sap-demo.md).
 
-`app/assistant` chứa nghiệp vụ DraftV: `api`, `schema`, `services`, `crud`, `models`, `demo`, cấu hình AI và hooks cho worker. Interface HTTP đặt dưới `/api/assistant`, dùng `app.api.deps.HRUser` và `DBSession`. Frontend `frontend/src/assistant` được render trong shell TallyV; CSS giới hạn trong `.assistant-workspace`.
+## Thêm tính năng và kiểm tra
 
-Sáu bảng `assistant_*` dùng chung `Base`, migration `a368e7c015b2` nối sau `f257c6d940a1`. `user_id` tham chiếu users TallyV. Không tạo hệ thống tài khoản/cookie hoặc database riêng. Kho file đi qua adapter gọi `app.services.storage`; không thêm credential hay bucket thứ hai.
+Đặt hợp đồng HTTP trong `schema`, route mỏng trong `api`, điều kiện nghiệp vụ/audit trong `services`, truy vấn và khóa trong `crud`. Đăng ký model mới với registry và review migration trước khi áp dụng. Không thêm lớp chuyển tiếp trống chỉ để tách folder.
 
-Yêu cầu sinh hồ sơ enqueue `ASSISTANT_GENERATE` trong `processing_jobs`, key `assistant:<run_id>`. Worker TallyV gọi các hooks `start`, `execute`, `failed` trong `app.assistant.jobs`, giữ nguyên claim/lease/advisory lock và transaction hoàn tất chung. Xử lý lỗi đầu vào trong savepoint để không commit một phần hồ sơ. Retry tối đa hai lần tự động; thử lại thủ công qua endpoint hội thoại có kiểm tra chủ sở hữu. Danh sách/retry jobs nghiệp vụ chấm công không hiển thị hay điều khiển jobs Assistant.
+Lệnh kiểm tra và giới hạn bằng chứng nghiệm thu nằm tại [verification.md](verification.md). Báo cáo lịch sử không thay cho kiểm tra trên bản triển khai hiện tại.

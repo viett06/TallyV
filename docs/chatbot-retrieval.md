@@ -1,5 +1,7 @@
 # Cổng tra cứu quy định dành cho nhân viên
 
+Phạm vi module Chatbot, đối chiếu mã ngày 14/11/2026. OCR PDF, embedding/cosine, rerank và Gemini trả lời trong module này vẫn hoạt động độc lập; việc bỏ các engine cũ của đánh giá chấm công không thay đổi đường tra cứu quy định. Xem [kiến trúc tổng thể](architecture.md).
+
 Nhân viên mở `/employee` và đăng nhập bằng tài khoản có vai trò `EMPLOYEE`. Tạo hoặc đặt lại mật khẩu từ thư mục TallyV bằng `venv/bin/python -m app.chatbot.create_employee employee.demo`. Tài khoản dùng cookie riêng cho cổng. Trong Chatbot của HR, bấm **Công bố** để nhân viên tra cứu tài liệu và mở PDF nguồn. Mỗi tài liệu mới ở trạng thái chưa công bố.
 
 ## Kho văn bản và bộ lọc
@@ -14,7 +16,9 @@ TallyV tham chiếu kiến trúc Azure AI Search của Microsoft. Hai nhánh x�
 
 Gemini nhận các đoạn đã xếp hạng và trả từng ý kèm ID đoạn. Backend kiểm tra ID và quyền công bố trước khi trả tên tệp, trang PDF, mục và đoạn trích cho giao diện. Mô hình mặc định dùng `OPENROUTER_API_KEY`, `POLICY_RERANK_MODEL=cohere/rerank-4-fast` và `POLICY_ANSWER_MODEL=google/gemini-2.5-flash`. Với kho mẫu, BM25 chạy trên các đoạn đã công bố và pgvector tìm cosine chính xác.
 
-## Liên kết giữa tài liệu
+## Ví dụ liên kết trong kho mẫu
+
+Các PDF và số trang bên dưới thuộc bộ mẫu lúc xây dựng, không tự xuất hiện trong checkout mới. Kho thực tế phụ thuộc tài liệu đã nhập và công bố.
 
 - Công văn Than Uyên về nghỉ phép năm 2026, trang PDF 1, dẫn mẫu đăng ký kèm theo. Mẫu nằm ở trang PDF 2. Khi hỏi về mẫu, hệ thống có thể thêm trang đích nếu tìm được đúng tiêu đề và năm trong cùng tệp.
 - Quy chế Ninh Hòa, trang PDF 12, dẫn phụ lục 01 và 02. Chưa xác định được trang đích tương ứng trong kho.

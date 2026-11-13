@@ -6,7 +6,10 @@ Công nghệ: Python 3.11+, Pillow để giải mã/chuẩn hóa/xuất ảnh s�
 
 ## Cài đặt và kiểm thử độc lập
 
+Từ gốc TallyV, chuyển vào thư mục subproject:
+
 ```sh
+cd image-preprocessing
 python -m venv .venv
 .venv/bin/python -m pip install -e '.[test]'
 .venv/bin/python -m pytest
@@ -21,15 +24,15 @@ from pathlib import Path
 from tallyv_image_preprocessing import ProfileSet, process, process_async
 
 profiles = ProfileSet.model_validate_json(Path("config/profiles.json").read_bytes())
-result = process(Path("input.png").read_bytes(), profiles)
+content = Path("input.png").read_bytes()
+result = process(content, profiles)
 
-# Trong một async function:
-result = await process_async(content, profiles)
-if result.status == "READY":
-    image_bytes = result.image.content
-else:
-    # Không gọi AI; yêu cầu nhân viên đánh giá.
-    reason = result.reason
+async def handle_image(content: bytes):
+    result = await process_async(content, profiles)
+    if result.status == "READY":
+        return result.image.content
+    # Không gọi AI; yêu cầu nhân viên đánh giá theo result.reason.
+    return None
 ```
 
 `process_async` dùng `asyncio.to_thread`, tránh chặn event loop. Package trả kết quả, không tự ghi file hay tạo tác vụ nền. Ứng dụng gọi quyết định lifecycle, storage và giới hạn số tác vụ. TallyV hiện dùng FastAPI `BackgroundTasks` và asyncio, không cần cấu hình queue cho luồng ảnh.
@@ -53,3 +56,5 @@ CLI đọc file cục bộ và tạo ảnh xem trước; không gọi AI. Profil
 Chỉ hỗ trợ `FACEID` và `DEVICE_ERROR`. Ảnh không khớp hoặc khớp nhiều profile, sai kích thước, hỏng file hay không còn bằng chứng sau che không tạo ảnh được phép gửi AI. Đầu ra bắt đầu từ mảng đen, chỉ chép vùng được giữ lại, rồi che đè vùng PII/mặt. PNG được tạo mới từ pixel, không sao chép metadata nguồn.
 
 Chỉ số độ sáng/Laplacian phục vụ kiểm tra chất lượng, không xác nhận ảnh không có người. Mặt nạ cố định chỉ bao phủ PII nằm đúng vùng đã cấu hình; cần nghiệm thu với ảnh và biến thể thực tế, không cam kết tự động đạt 100%.
+
+Tích hợp storage/DB, thứ tự chạy nền và VLM do ứng dụng sở hữu, được mô tả tại [hướng dẫn TallyV](../docs/vlm-evidence.md). Metadata nguồn không được sao chép, nhưng nội dung PII nằm ngoài vùng che vẫn phụ thuộc profile; trạng thái `READY` không phải chứng nhận ẩn danh tuyệt đối.

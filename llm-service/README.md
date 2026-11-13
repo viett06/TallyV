@@ -1,4 +1,6 @@
-# Qwen 4B nội bộ cho TallyV
+# Qwen 4B nội bộ cho TallyV Assistant
+
+Package runtime này phục vụ Assistant, vẫn được giữ sau khi bỏ LLM văn bản khỏi đánh giá chấm công. Override chỉ đặt `ASSISTANT_*`, không cấu hình `EVIDENCE_VISION_*` hoặc chuẩn bị model Qwen3-VL cho ảnh bằng chứng. Xem [đường PII/VLM độc lập](../docs/vlm-evidence.md).
 
 Ollama trong Docker chạy Qwen3.5 4B bản Q4_K_M dạng GGUF, dùng cho metadata Excel dạng text. [Unsloth lượng tử hóa từ model Qwen và phân phối GGUF](https://huggingface.co/unsloth/Qwen3.5-4B-GGUF). Bước tải dùng revision cố định và kiểm tra SHA-256. Weights không vào Git hoặc Docker build context.
 

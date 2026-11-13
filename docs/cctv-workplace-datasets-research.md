@@ -1,5 +1,7 @@
 # Nguồn ảnh camera để kiểm thử đối chiếu bằng chứng TallyV
 
+> Phạm vi cập nhật 14/11/2026: danh mục nguồn là snapshot khảo sát 12/11/2026, chưa tái xác minh giấy phép hoặc tải media. Luồng tìm góc camera bằng embedding/SIFT đã bị gỡ. CCTV hiện chưa được xử lý PII tự động và phải bị chặn VLM; các nguồn này chỉ còn dùng để nghiên cứu hoặc kiểm tra đường chuyển nhân viên. Xem [phạm vi ảnh hiện tại](evidence-images.md).
+
 Khảo sát nguồn công bố ngày 12/11/2026. Nếu mục tiêu là **chạy thử TallyV nội bộ với giấy phép CC BY 4.0**, bắt đầu bằng **MEVA** để kiểm tra đối chiếu góc camera qua nhiều ngày. **HA4M** bổ sung cảnh người thao tác ở bàn lắp ráp. Nếu mục đích sử dụng thuộc phạm vi **phi thương mại**, **Edinburgh Office Monitoring** sát nhất với yêu cầu ghi người làm việc tại văn phòng.
 
 ## Nguồn ưu tiên
@@ -29,13 +31,11 @@ Ví dụ chọn clip MEVA từ danh sách URL của Kitware. Hai tệp dưới �
 
 Video từ camera gắn trên đầu như **xPhi-Ego-100** ghi công việc thật, nhưng nền di chuyển theo người đeo. Với nguồn có cả hai loại góc, dùng camera cố định `exo` để kiểm tra đối chiếu nền. [XPhi Robotics](https://huggingface.co/datasets/xphirobotics/xPhi-Ego-100) · [Assembly101](https://assembly-101.github.io/)
 
-## Tập ảnh thử cho TallyV
+## Dùng mẫu với phiên bản hiện tại
 
-1. Bắt đầu với 3 góc camera đã biết, mỗi góc lấy khoảng 3 ảnh tham chiếu và 5 ảnh truy vấn. Lấy ảnh tham chiếu và truy vấn từ ngày hoặc phiên khác nhau nếu nguồn có. Chọn cảnh có người, cảnh trống hoặc thay đổi ánh sáng nếu có, giữ bố cục gốc. Giữ thêm một góc chưa có trong kho và một góc khác có bố cục gần giống làm đối chứng. Tạo riêng một bản trùng byte và một bản nén lại để kiểm tra nhận diện ảnh tái sử dụng.
-2. Lưu manifest cho từng ảnh với URL nguồn, giấy phép, ID camera, ngày hoặc mã phiên, mốc khung hình và vai trò tham chiếu/truy vấn. Với bài OCR, thêm biến thể có dấu giờ giả lập như `CAMERA TEST-CAM-01 2026-11-12 08:03:00` và giữ ảnh gốc làm đối chứng. Dùng ngày công, ca, lượt quét và giải trình giả lập do bộ test định nghĩa.
-3. Đưa ảnh tham chiếu vào hồ sơ test qua luồng đính kèm rồi xác nhận HR và chờ worker lập chỉ mục. Ảnh truy vấn ở hồ sơ khác nhưng cùng nguồn dữ liệu. Nếu đã có hồ sơ xác nhận, có thể lập chỉ mục qua `python -m scripts.index_evidence_history index <mã ảnh>`. TallyV lọc mẫu đã xác nhận ở phiên bản hiện hành, cùng nguồn, rồi kiểm tra SHA-256 hoặc dấu vân tay trước khi xếp ứng viên theo cosine và xác minh hình học bằng SIFT. Khi có nhóm góc khớp mạnh nhưng chưa gắn địa điểm, trạng thái là `KNOWN_VIEW_UNLOCATED`. [Luồng đối chiếu](evidence-history.md) · [Mã xử lý](../app/services/evidence_history.py)
-4. Ghi số trường hợp tìm đúng góc, gán nhầm góc, bỏ sót và nhận ra ảnh tái sử dụng. Đối chiếu loại lỗi công số với nhãn nghiệp vụ giả lập trong `answers.json` nếu chạy `scripts/evaluate.py`. Nhãn camera là căn cứ đánh giá bố cục. Quyết định về thời điểm, lượt quét và công số cần các dữ kiện nghiệp vụ của hồ sơ. [Script đánh giá](../scripts/evaluate.py) · [Hướng dẫn chạy thử](evidence-history.md#chạy-thử-một-hồ-sơ)
+1. Giữ manifest URL nguồn, giấy phép tại thời điểm lấy, ID camera/phiên và phần chỉnh sửa của từng ảnh. Quyền truy cập công khai không tự xác nhận quyền gửi ảnh có người cho nhà cung cấp AI.
+2. Tách môi trường và hồ sơ thử khỏi dữ liệu nghiệp vụ. Nếu được phép dùng ảnh đã chọn, đính kèm qua luồng nhập hiện có để kiểm tra bố cục chưa hỗ trợ chuyển `MANUAL_REVIEW`. Với cấu hình mặc định rỗng, không ảnh nào được gửi VLM.
+3. Kiểm tra trạng thái PII, không có preview gửi model và không có quyền mở chặn. HR xác nhận thủ công cũng không tạo chỉ mục hoặc cấp quyền gửi ảnh gốc. Hiện không có CLI lập chỉ mục, kho tham chiếu camera, cosine hoặc xác minh hình học trong đánh giá.
+4. Kiểm thử hai loại tự động `FACEID`/`DEVICE_ERROR` bằng ảnh giả lập theo profile tương ứng. Không gắn profile FaceID cho CCTV chỉ để model nhận được ảnh. Đánh giá đúng/sai nguyên nhân phải dựa trên dữ kiện nghiệp vụ giả lập; nhãn góc camera không chứng minh danh tính hoặc công số.
 
-Có thể dùng `STORAGE_BACKEND=local` cho môi trường test, hoặc bucket private nếu môi trường đã dùng S3/MinIO. Worker còn cần bản ghi ảnh và chỉ mục trong TallyV để truy xuất được mẫu. [Cấu hình lưu trữ](object-storage.md) · [Lập chỉ mục ảnh](evidence-history.md#nạp-ảnh-cũ-được-phép-sử-dụng)
-
-Khảo sát kiểm tra trang công bố, tài liệu và liên kết được nhà phát hành liệt kê. Chưa tải media, nạp ảnh vào storage hoặc đo cosine.
+Có thể dùng `STORAGE_BACKEND=local` hoặc bucket private đã cấu hình cho môi trường thử. Xem [lưu trữ](object-storage.md), [luồng PII/VLM](vlm-evidence.md) và [kiểm thử hiện tại](verification.md). Thao tác đồng bộ tài liệu này không tải media, đưa ảnh vào storage hoặc gọi model.

@@ -1,6 +1,8 @@
 # TallyV — MVP rà soát điều chỉnh chấm công
 
-Ứng dụng nghiệp vụ HR bằng tiếng Việt, hỗ trợ hộp thư Outlook thử nghiệm của người phát triển và chế độ Mailpit dành riêng cho dữ liệu mô phỏng. Quy trình hiện tại: tiếp nhận email/Excel → đánh giá và phân loại khi HR bấm nút → HR rà soát, xác nhận và xuất kết quả. Chưa kết nối SAP thật.
+Ứng dụng nghiệp vụ HR bằng tiếng Việt, hỗ trợ hộp thư Outlook thử nghiệm của người phát triển và chế độ Mailpit dành riêng cho dữ liệu mô phỏng. Quy trình hiện tại: tiếp nhận email/Excel → tiền xử lý PII offline chạy nền → khi HR yêu cầu, chờ hoàn tất tiền xử lý rồi đánh giá bằng VLM trên ảnh hợp lệ → HR rà soát, xác nhận và xuất kết quả. Ảnh chưa xử lý được chỉ dành cho nhân viên, không được gửi VLM. Chưa kết nối SAP thật.
+
+Tài liệu vận hành và trạng thái các bản nghiên cứu nằm tại [mục lục docs](docs/README.md).
 
 ## Assistant — xử lý dữ liệu và soạn báo cáo theo prompt
 
@@ -46,7 +48,7 @@ Stack mặc định dùng Outlook/Composio, không chứa Mailpit. Các bước 
 
 ## Chạy demo từ đầu
 
-Cần Docker Desktop/Compose, Python 3.11+ để tạo cấu hình. Lần build đầu có tải dependency; xử lý dữ liệu chạy tại local.
+Cần Docker Desktop/Compose, Python 3.11+ để tạo cấu hình. Lần build đầu có tải dependency. Tiền xử lý PII chạy offline; VLM chỉ được gọi khi đã có profile phù hợp và provider đã cấu hình. Mặc định profile rỗng nên ảnh chuyển cho nhân viên.
 
 ```bash
 python3 scripts/init_env.py
@@ -69,8 +71,8 @@ Mở **http://127.0.0.1:8000**, đăng nhập `hr.demo` bằng `DEMO_PASSWORD` t
 1. **0:00–0:45** Đăng nhập, nhấn Tạo dữ liệu demo. Mở Tiến trình xử lý để thấy SMTP → đồng bộ → nhập. Dữ liệu hiển thị **Chưa đánh giá**; nhấn **Đánh giá và phân loại** để chạy tiền xử lý PII và đánh giá ảnh.
 2. **0:45–1:30** Chọn kỳ tháng 10 rồi tháng 9. Xem số khoa/phòng đã gửi và số liệu thay đổi theo database. Chọn Tất cả kỳ để thấy 10 email / 60 trường hợp.
 3. **1:30–2:15** Mở Hộp thư: khoa 1 có dòng ngày mơ hồ và ảnh sai anchor; file sai mẫu; email không Excel; email ngoài phạm vi. Xem số dòng nguồn = nhập + trùng + dòng lỗi. Lỗi liên kết ảnh cấp file được báo riêng. Nhấn Đồng bộ nhiều lần: không tạo trùng.
-4. **2:15–3:15** Mở MP-1-001: so sánh bản gốc với bản sửa, ghi lý do và giữ/áp dụng phiên bản. Xem MP-1-007/008 có ngày/mã nhân viên trong ảnh không khớp. MP-1-006 có ảnh không đọc được. MP-1-012 có hai ảnh cùng dòng.
-5. **3:15–4:15** HR sửa phân loại, đánh dấu cần bổ sung kèm lý do. Lọc Đủ theo quy tắc demo, chọn dòng và xác nhận lô sau hộp xác nhận. Dòng ngoại lệ không chọn được; backend kiểm tra lại, giao dịch duyệt lô là toàn bộ hoặc không có dòng nào.
+4. **2:15–3:15** Mở MP-1-001: so sánh bản gốc với bản sửa, ghi lý do và giữ/áp dụng phiên bản. HR tự đối chiếu nguồn của MP-1-007/008, ảnh ít thông tin của MP-1-006 và hai ảnh cùng dòng của MP-1-012. Không kỳ vọng hệ thống tự OCR/đối chiếu tên, mã và ngày từ các ảnh này.
+5. **3:15–4:15** HR sửa phân loại, đánh dấu cần bổ sung kèm lý do. Với profile mặc định rỗng, kết quả là cần nhân viên đánh giá và không có dòng đủ duyệt lô. HR xác nhận ngoại lệ riêng lẻ sau khi xem nguồn và nhập lý do. Chỉ thử duyệt lô với tập ảnh giả lập có profile đã kiểm tra và kết quả VLM đủ điều kiện; giao dịch là toàn bộ hoặc không có dòng nào.
 6. **4:15–5:00** Xem lịch sử ai sửa gì/khi nào/lý do. Lọc kỳ, trạng thái rồi Xuất Excel. Xác nhận trong TallyV là kết quả rà soát; cập nhật công số sẽ thực hiện trong SAP khi có môi trường tích hợp.
 
 ## Cấu trúc
@@ -91,13 +93,16 @@ app/
   core/                  # Cấu hình, AppError, middleware, UTC, serialization
   db/                    # URL database, Base, model registry và Session
   demo/                  # Danh mục và bộ sinh email/Excel/ảnh giả lập
+  assistant/             # Assistant dữ liệu/báo cáo, AI riêng, dùng worker chung
+  chatbot/               # Kho PDF và tra cứu quy định, AI độc lập
   worker.py              # Chạy job và quản lý transaction, retry, scheduler
+image-preprocessing/     # Package tiền xử lý pixel offline, CLI và tests riêng
 alembic/versions/        # Lịch sử migration database
 scripts/                 # CLI: khởi tạo, gửi demo, smoke, đánh giá, reset
 frontend/                # React + TypeScript + Vite + Tailwind
 ```
 
-Router nhận dữ liệu qua `schema`, lấy session/user qua dependencies, gọi `services`. Nghiệp vụ gọi `crud` để truy vấn và khóa dòng; `crud` không commit. Thao tác HR commit trong service, job nhập/phân tích commit trong worker để có thể rollback/retry toàn bộ. XLSX parser không phụ thuộc database hay network.
+Router nhận dữ liệu qua `schema`, lấy session/user qua dependencies, gọi `services`. Nghiệp vụ gọi `crud` để truy vấn và khóa dòng; `crud` không commit. Thao tác HR commit trong service, job nhập commit trong worker để rollback/retry. Background ảnh có session và transaction riêng, không tự phát lại sau restart như queue. XLSX parser không phụ thuộc database hay network.
 
 `app/db/base_model.py` là điểm nạp đầy đủ metadata cho Alembic. Ứng dụng không dùng `create_all` để quản lý schema. Chi tiết và cách thêm tính năng/model mới: [Kiến trúc backend](docs/architecture.md).
 
@@ -105,8 +110,7 @@ Cài công cụ phát triển và kiểm tra Python:
 
 ```bash
 pip install -r requirements-dev.txt
-ruff check app main.py alembic/env.py scripts tests
-ruff format --check app main.py alembic/env.py scripts tests
+ruff check app main.py alembic scripts tests image-preprocessing/src image-preprocessing/tests
 python -m pytest -q
 ```
 
@@ -146,28 +150,25 @@ python -m pytest -q
 cd frontend && npm ci && npm run build
 ```
 
-Unit/integration API tests dùng database SQLite tạm riêng để không đụng demo. Luồng thực tế PostgreSQL, Mailpit và worker được kiểm tra bằng smoke script:
+Unit/integration API tests dùng database/storage tạm, không đụng dữ liệu demo. Kiểm thử subproject riêng từ gốc repo:
 
 ```bash
-# Sau khi chạy stack và tạo demo; script sẽ ghi một kết quả xác nhận demo
-# và một yêu cầu bổ sung demo để kiểm tra nghiệp vụ.
-python -m scripts.smoke
-# Đánh giá phân loại với đáp án riêng, không truyền đáp án cho bộ phân loại.
-docker compose exec api python -m scripts.evaluate
+python -m pytest -q image-preprocessing/tests
 ```
 
-Muốn kiểm tra read/unread: dừng worker, gửi mẫu, đánh dấu tất cả email đã đọc trong Mailpit, rồi bật worker và đồng bộ. Muốn kiểm tra lưu bền: restart api/worker, so số email/trường hợp/audit và mở lại ảnh. Báo cáo nghiệm thu thực tế nằm trong `docs/verification.md`.
+Xem [phạm vi kiểm thử và kiểm tra triển khai](docs/verification.md). `scripts/smoke.py` còn giả định engine cũ và queue đánh giá, chưa phù hợp để chạy nguyên trạng với PII/VLM. `scripts/evaluate.py` chỉ tổng hợp phân loại đã có; không chạy VLM hoặc chứng minh che PII. Các báo cáo OCR/RULE_BASED cũ được đánh dấu lịch sử, không dùng làm benchmark VLM.
 
 ## Reset demo (phá hủy dữ liệu mô phỏng đã nhập)
 
 ```bash
-docker compose stop worker
+docker compose -f compose.yaml -f compose.demo.yaml stop api worker
+# Dừng cả API/worker native và background trước khi chạy.
 # Không có --confirm đúng chuỗi thì script từ chối xóa.
-docker compose exec api python -m scripts.reset_demo --confirm RESET-SYNTHETIC-DEMO
-docker compose start worker
+docker compose -f compose.yaml -f compose.demo.yaml run --rm --no-deps api python -m scripts.reset_demo --confirm RESET-SYNTHETIC-DEMO
+docker compose -f compose.yaml -f compose.demo.yaml up -d api worker
 ```
 
-Reset giữ tài khoản HR/danh mục, xóa trường hợp, file, job và email Mailpit của ứng dụng. Worker đang chạy thì advisory lock chặn reset. Không dùng `docker compose down -v` nếu muốn giữ dữ liệu.
+Chỉ dùng reset trên môi trường Mailpit mô phỏng riêng. Script giữ tài khoản/danh mục nhưng xóa các bảng nghiệp vụ và job bằng TRUNCATE/CASCADE; không bảo vệ dữ liệu Outlook hay các module đang dùng chung. Khóa worker không kiểm soát background API. Script chưa kiểm kê đầy đủ artifact PII/Assistant/Chatbot, có thể để lại object mồ côi; xem [giới hạn lưu trữ](docs/object-storage.md). Không dùng `docker compose down -v` nếu muốn giữ dữ liệu.
 
 ## Phát triển local
 
@@ -204,9 +205,9 @@ Không chạy thêm worker Python cùng lúc. Khi đổi từ named volume Docke
 - Workbook không thực thi macro/công thức, từ chối macro/external workbook links, kiểm tra kích thước nén/giải nén/ảnh. Công thức trong dòng gây lỗi dòng. Excel xuất cưỡng bức kiểu chuỗi cho giá trị không đáng tin.
 - Tiền xử lý ảnh chạy offline. VLM chỉ nhận ảnh khớp profile đã cấu hình và đã xử lý PII; profile mặc định rỗng chặn toàn bộ ảnh. Trình duyệt gọi API cùng origin và chuyển sang trang Microsoft khi HR đăng nhập. Mailpit và Ollama giới hạn host nội bộ.
 - Worker Compose gốc chỉ nối mạng internal. Chế độ Outlook dùng thêm `compose.outlook.yaml` để worker truy cập Microsoft identity/Graph theo quyền HR đã cấp. Cổng API/Mailpit/Postgres vẫn chỉ bind loopback. Chưa cấu hình Entra hoặc chưa cấp quyền thì không đọc được hộp thư thật.
-- Giới hạn: XLSX 15 MB, tối đa 2000 dòng/30 cột, 60 MB giải nén; ảnh PNG/JPEG do Pillow đọc được, 8 MB/16 triệu pixel. Không PDF/OCR tài liệu nhiều trang, không macro, không nhận diện khuôn mặt.
+- Giới hạn: XLSX 15 MB, tối đa 2000 dòng/30 cột, 60 MB giải nén; ảnh PNG/JPEG do Pillow đọc được, 8 MB/16 triệu pixel. Luồng chấm công không nhận PDF, không chạy macro hoặc nhận diện khuôn mặt. PDF quy định thuộc module Chatbot riêng.
 - Retry không sửa nội dung nguồn sai: HR phải yêu cầu file sửa. Email ngoài phạm vi giữ lại để xem và gửi lại đúng mẫu, chưa có tính năng gán khoa/kỳ thủ công.
-- Một worker, polling 30 giây, chưa tối ưu khối lượng lớn, chưa có antivirus/quarantine chuyên dụng hoặc cơ chế phục hồi file mồ côi sau process crash. File đã được lưu mà transaction rollback có thể còn UUID mồ côi; không làm phát sinh trường hợp trùng.
+- Một worker/scheduler; polling phụ thuộc connector (`SYNC_INTERVAL`, `COMPOSIO_POLL_INTERVAL`). Background ảnh chạy trong process, chưa có queue lưu bền. Chưa tối ưu khối lượng lớn, chưa có antivirus/quarantine chuyên dụng hoặc cơ chế phục hồi file mồ côi sau process crash. File đã được lưu mà transaction rollback có thể còn UUID mồ côi; không làm phát sinh trường hợp trùng.
 - Kết quả VLM không được coi là bằng chứng phê duyệt công. Không tuyên bố độ chính xác trên dữ liệu bệnh viện thật.
 
 Tham khảo kỹ thuật: [Mailpit API](https://mailpit.axllent.org/docs/api-v1/), [Alembic](https://alembic.sqlalchemy.org/en/latest/tutorial.html), [SQLAlchemy](https://docs.sqlalchemy.org/en/20/core/engines.html).

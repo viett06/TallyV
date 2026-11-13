@@ -1,6 +1,6 @@
 # TallyV Assistant
 
-Assistant supports prompt-driven data work and document drafting inside TallyV. It shares authentication, private file storage and the job queue with the attendance module. It does not require Microsoft 365, Outlook, Copilot, Azure or SAP.
+Assistant supports prompt-driven data work and document drafting inside TallyV. It shares authentication, private file storage and the existing PostgreSQL worker with email intake. Attendance image assessment now uses separate in-process PII/VLM background work, while Assistant keeps its `ASSISTANT_GENERATE` jobs and `ASSISTANT_*` model configuration. See the [attendance architecture](architecture.md). It does not require Microsoft 365, Outlook, Copilot, Azure or SAP.
 
 The implementation follows the public Microsoft agent/workflow patterns described in [the system design](assistant-system-design.md), using `agent-framework-core==1.24.0` for typed tool execution graphs. Application-level SQL receipts persist progress between those graphs. This is not a Microsoft certification or an implementation of Microsoft's private product internals.
 

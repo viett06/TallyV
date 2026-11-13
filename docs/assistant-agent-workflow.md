@@ -1,5 +1,7 @@
 # TallyV Assistant — đặc tả nghiệp vụ và kiểm soát workflow agent
 
+> Đối chiếu phạm vi 14/11/2026: đây là đặc tả Assistant, gồm phần đã triển khai và yêu cầu mở rộng; [assistant.md](assistant.md) là hướng dẫn vận hành hiện tại. Queue, model lập kế hoạch và sandbox ở đây thuộc Assistant, không phải luồng [ảnh chấm công PII/VLM](vlm-evidence.md).
+
 Ngày: 2026-11-09. Phiên bản đặc tả: 1.1.
 
 **Trạng thái: chế độ Hybrid có luồng LangGraph và runner gVisor tùy chọn.** [Hướng dẫn Assistant](assistant.md#hybrid-excel-workflow) mô tả phạm vi đã triển khai và cấu hình. Tài liệu này còn mô tả các yêu cầu mở rộng, gồm quy trình tái sử dụng và kiểm chứng nâng cao.

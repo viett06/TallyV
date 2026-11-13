@@ -1,5 +1,7 @@
 # Microsoft AI assistant architecture: evidence for TallyV
 
+> Status as of 2026-11-14: dated architecture research, not a deployment guide. Upstream sources were not revalidated in the documentation sync. Current Assistant modes and implemented limits are documented in [assistant.md](assistant.md); attendance image processing uses a separate [PII/VLM background pipeline](vlm-evidence.md).
+
 Research date: 2026-11-04. Scope: publicly documented AI agent architecture, not Microsoft 365, Outlook, Office licensing, or an implementation change. The recommendations below are TallyV design decisions informed by Microsoft sources. They do not describe proprietary Copilot internals, establish a universal Microsoft architecture, or confer Microsoft or hospital compliance certification.
 
 ## 1. Start with one agent and explicit workflow control
