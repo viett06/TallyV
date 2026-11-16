@@ -7,10 +7,10 @@ import { HrWorkspace } from './components/HrIntegration'
 import { AnalysisControls } from './components/AnalysisControls'
 import { OutlookSettings } from './components/OutlookSettings'
 import { ReviewSchedule, calendarDate, cycleReference } from './components/ReviewSchedule'
-import { t } from './i18n'
+import { t, type MessageKey } from './i18n'
 import React, { useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { Activity, ArrowDownToLine, ArrowRight, Bell, BookOpen, Bot, CalendarDays, Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, Clock3, FileSpreadsheet, FolderCheck, Inbox, LayoutDashboard, LogOut, Mail, Menu, Plus, RefreshCw, Search, Settings2, ShieldCheck, Sparkles, Users, X, ZoomIn, AlertCircle, CircleHelp, CheckCircle2, Server, ExternalLink } from 'lucide-react'
+import { Activity, ArrowDownToLine, ArrowRight, Bell, BookOpen, Bot, CalendarDays, Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, Clock3, FileSpreadsheet, FolderCheck, Inbox, LayoutDashboard, LoaderCircle, LogOut, Mail, Menu, Plus, RefreshCw, Search, Settings2, ShieldCheck, Sparkles, Users, X, ZoomIn, AlertCircle, CircleHelp, CheckCircle2, Server, ExternalLink } from 'lucide-react'
 import './styles.css'
 import './integration.css'
 import './attendance.css'
@@ -63,6 +63,30 @@ function WorkspaceBrand({ showLabel = true }: { showLabel?: boolean }) {
 }
 
 const processingLabel = (mode:string) => t(mode==='VLM'?'processing.vlm':'processing.legacy')
+const ANALYSIS_STATUS: Record<string, MessageKey> = {
+  NOT_STARTED: 'analysis.not_evaluated',
+  COMPLETED: 'processing.completed',
+  MANUAL_REVIEW: 'privacy.manual_analysis',
+  FAILED: 'processing.failed',
+}
+const isAnalysisInProgress = (status?:string) => ['WAITING_PRIVACY','PENDING','RUNNING'].includes(status??'')
+const PRIVACY_STATUS: Record<string, MessageKey> = {
+  PENDING: 'privacy.pending',
+  READY: 'privacy.ready',
+  MANUAL_REVIEW: 'privacy.manual',
+}
+const PRIVACY_REASONS: Record<string, MessageKey> = {
+  STALE_CONFIGURATION: 'privacy.reason_stale',
+  UNKNOWN_LAYOUT: 'privacy.reason_unknown_layout',
+  AMBIGUOUS_LAYOUT: 'privacy.reason_ambiguous_layout',
+  UNREADABLE_IMAGE: 'privacy.reason_unreadable',
+  NO_VISIBLE_EVIDENCE: 'privacy.reason_no_evidence',
+  OUTPUT_TOO_LARGE: 'privacy.reason_output_size',
+  SOURCE_CHECKSUM_MISMATCH: 'privacy.reason_source_integrity',
+  ARTIFACT_UNAVAILABLE: 'privacy.reason_preview_unavailable',
+  ARTIFACT_CHECKSUM_MISMATCH: 'privacy.reason_preview_integrity',
+  PREPROCESSING_FAILED: 'privacy.reason_processing_failed',
+}
 const dateTime = (s:string) => s ? new Date(s).toLocaleString('vi-VN',{timeZone:'Asia/Ho_Chi_Minh',hour:'2-digit',minute:'2-digit',day:'2-digit',month:'2-digit',year:'numeric'}) : '—'
 async function api(path:string, options:RequestInit = {}) {
   const response = await fetch('/api'+path,{credentials:'same-origin',...options,headers:{'Content-Type':'application/json',...options.headers}})
@@ -74,20 +98,275 @@ function Category({value, labels}:{value:string, labels:Record<string, string>})
   return <span className={'category cat-'+value}><span/>{labels[value] ?? value}</span>
 }
 function Empty({title,children}:{title:string,children?:React.ReactNode}) {return <div className="empty"><Inbox size={34}/><h3>{title}</h3><p>{children||t("empty.filter_hint")}</p></div>}
-function EvidenceObservations({evidence}:{evidence:Item}) {
-  const extracted = evidence.extracted || {}
-  const visual = extracted.visual_assessment
-  const visualLabels: Item = {SUPPORTS:'evidence.visual_supports',CONTRADICTS:'evidence.visual_contradicts',INSUFFICIENT:'evidence.visual_insufficient'}
-  return <>
-    {evidence.privacy&&<div className={evidence.privacy.status==='MANUAL_REVIEW'?'red-text':''}>
-      <strong>{t(({READY:'privacy.ready',MANUAL_REVIEW:'privacy.manual',PENDING:'privacy.pending'} as Item)[evidence.privacy.status]||'privacy.pending')}</strong>
-      <p>{t(evidence.privacy.vlm_allowed?'privacy.vlm_allowed':'privacy.vlm_blocked')}</p>
-      {evidence.privacy.preview_url&&<a href={evidence.privacy.preview_url} target="_blank" rel="noreferrer">{t('privacy.preview')}</a>}
-    </div>}
-    {visual&&<div className={visual.relation==='CONTRADICTS'?'red-text':''}><strong>{t(visualLabels[visual.relation]||'evidence.visual_insufficient')}</strong><p>{visual.observation}</p><p className="muted">{visual.limitations}</p></div>}
+function AnalysisBadge({status}:{status:string}) {
+  return <span className={'badge b-'+status}>{ANALYSIS_STATUS[status]?t(ANALYSIS_STATUS[status]):status}</span>
+}
 
+function AnalysisProgress({status,compact=false}:{status:string,compact?:boolean}) {
+  const preprocessing = status==='WAITING_PRIVACY'
+  const running = status==='RUNNING'
+  return <div className={'analysis-progress'+(compact?' analysis-progress-compact':'')} role={compact?undefined:'status'}>
+    <div className="analysis-progress-step" data-state={preprocessing?'running':'complete'}>
+      {preprocessing?<LoaderCircle className="stage-spinner" aria-hidden="true"/>:<CheckCircle2 aria-hidden="true"/>}
+      <div>{!compact&&<strong>{t('analysis.image_step')}</strong>}<span>{t(preprocessing?'privacy.waiting_analysis':'analysis.image_step_complete')}</span></div>
+    </div>
+    <div className="analysis-progress-step" data-state={running?'running':'waiting'}>
+      {running?<LoaderCircle className="stage-spinner" aria-hidden="true"/>:<Clock3 aria-hidden="true"/>}
+      <div>{!compact&&<strong>{t('analysis.vlm_step')}</strong>}<span>{t(preprocessing&&!compact?'analysis.waiting_for_images':running?'analysis.running_vlm':'analysis.waiting_vlm')}</span></div>
+    </div>
+  </div>
+}
+
+function EvidenceObservations({evidence,assessed}:{evidence:Item,assessed:boolean}) {
+  const privacy = evidence.privacy
+  const privacyLabel = privacy && PRIVACY_STATUS[privacy.status]
+  const privacyReason = privacy && PRIVACY_REASONS[privacy.reason]
+  const visual = assessed ? evidence.extracted?.visual_assessment : null
+  const visualLabels: Record<string, MessageKey> = {
+    SUPPORTS: 'evidence.visual_supports',
+    CONTRADICTS: 'evidence.visual_contradicts',
+    INSUFFICIENT: 'evidence.visual_insufficient',
+  }
+  return <>
+    {privacyLabel&&<div className="evidence-privacy">
+      <span className={'badge b-'+privacy.status}>
+        {privacy.status==='PENDING'&&<Clock3 size={13} aria-hidden="true"/>}
+        {t(privacyLabel)}
+      </span>
+      {privacyReason&&<p>{t(privacyReason)}</p>}
+    </div>}
+    {visual&&<div className={visual.relation==='CONTRADICTS'?'findings red-text':'findings'}>
+      <strong>{t(visualLabels[visual.relation]||'evidence.visual_insufficient')}</strong>
+      <p>{visual.observation}</p>
+      {visual.limitations&&<p className="muted">{visual.limitations}</p>}
+    </div>}
   </>
 }
+function CaseEvidence({id,evidence=[],analysisResult,onZoom,compact=false}:{
+  id?:string; evidence?:Item[]; analysisResult?:Item; onZoom:(url:string)=>void; compact?:boolean
+}) {
+  const [selectedId,setSelectedId]=useState<number|null>(null)
+  const selected=evidence.find(item=>item.id===selectedId)??evidence[0]
+  const visible=compact&&selected?[selected]:evidence
+  const currentAssessment=analysisResult?.status==='COMPLETED'&&analysisResult.method==='VLM'
+  return <section className="detail-section" id={id}>
+      <div className="section-title"><FileSpreadsheet size={17}/><h3>{t('evidence.section_title')}</h3><span className="count-label">{evidence.length}</span></div>
+      {!evidence.length&&<p className="muted">{t('evidence.none')}</p>}
+      {compact&&evidence.length>1&&<div className="evidence-picker" role="group" aria-label={t('evidence.choose')}>
+        {evidence.map((item,index)=><button type="button" key={item.id}
+          aria-label={t('evidence.position',{current:index+1,total:evidence.length})}
+          aria-pressed={item.id===selected?.id} onClick={()=>setSelectedId(item.id)}>
+          <img src={item.url} alt=""/>
+          <span aria-hidden="true">{index+1}</span>
+        </button>)}
+      </div>}
+      <div className="evidence-grid">{visible.map(e=>{
+        const previewUrl = e.privacy?.status==='READY'&&e.privacy.vlm_allowed ? e.privacy.preview_url : null
+        return <article className={'evidence-card'+(previewUrl?' evidence-card-comparison':'')} key={e.id}>
+          <div className="evidence-previews">
+            <button className="evidence-image" aria-label={t('evidence.zoom_source')} onClick={()=>onZoom(e.url)}>
+              <img src={e.url} alt={t('evidence.image_alt_prefix')+e.anchor}/>
+              <span><ZoomIn size={15} aria-hidden="true"/>{t('evidence.zoom_source')}</span>
+            </button>
+            {previewUrl&&<button className="evidence-image" aria-label={t('privacy.preview')} onClick={()=>onZoom(previewUrl)}>
+              <img src={previewUrl} alt={t('privacy.preview_alt')}/>
+              <span><ZoomIn size={15} aria-hidden="true"/>{t('privacy.preview')}</span>
+            </button>}
+          </div>
+          <div className="evidence-description">
+            <strong>{t('evidence.image_number_prefix')}{e.id} · {e.anchor}</strong>
+            <EvidenceObservations evidence={e} assessed={currentAssessment&&!!analysisResult?.extracted?.processed_evidence_ids?.includes(e.id)}/>
+          </div>
+        </article>
+      })}</div>
+    </section>
+}
+
+function CaseAssessment({id,analysisResult,categoryLabels}:{
+  id?:string; analysisResult?:Item; categoryLabels:Record<string,string>
+}) {
+  const analysisInProgress=isAnalysisInProgress(analysisResult?.status)
+  const currentAssessment=analysisResult?.status==='COMPLETED'&&analysisResult.method==='VLM'
+  return <section className="detail-section system-result" id={id}>
+      <div className="section-title">
+        <Sparkles size={17}/><h3>{t('analysis.section_title')}</h3>
+        {analysisResult?.status==='COMPLETED'&&<span className="chip">{processingLabel(analysisResult.method)}</span>}
+      </div>
+      {analysisInProgress&&<AnalysisProgress status={analysisResult?.status}/>}
+      {analysisResult?.status==='COMPLETED'?<>
+        <div className="button-row"><Category value={analysisResult.category} labels={categoryLabels}/><Badge value={analysisResult.assessment} kind="assessment"/></div>
+        {analysisResult.reason&&<p>{analysisResult.reason}</p>}
+        {currentAssessment&&!!analysisResult.extracted?.supporting_evidence_ids?.length&&<p className="muted">
+          {t('analysis.supporting_evidence',{references:analysisResult.extracted.supporting_evidence_ids.map((id:number)=>`#${id}`).join(', ')})}
+        </p>}
+        {analysisResult.missing.length>0&&<div className="findings"><strong>{t('analysis.missing_information')}</strong><ul>{analysisResult.missing.map((m:string)=><li key={m}>{m}</li>)}</ul></div>}
+        {analysisResult.conflicts.length>0&&<div className="findings red-text"><strong>{t('analysis.conflicts')}</strong><ul>{analysisResult.conflicts.map((m:string)=><li key={m}>{m}</li>)}</ul></div>}
+        <p className="muted">{t('analysis.rule_version_prefix')}{analysisResult.rules_version}{analysisResult.model&&' · Model '+analysisResult.model}</p>
+      </>:analysisResult&&!analysisInProgress&&<div aria-live="polite">
+        <AnalysisBadge status={analysisResult.status}/>
+        {analysisResult.status==='NOT_STARTED'&&<p>{t('analysis.not_started_hint')}</p>}
+        {analysisResult.status==='MANUAL_REVIEW'&&<p>{analysisResult.reason||t('analysis.manual_review_hint')}</p>}
+        {analysisResult.error&&<div className="alert error">{analysisResult.error}</div>}
+      </div>}
+    </section>
+}
+
+function QuickReview({items,categoryLabels,onZoom,onOpenCase,onUpdated}:{
+  items:Item[]; categoryLabels:Record<string,string>; onZoom:(url:string)=>void
+  onOpenCase:(id:number)=>void; onUpdated:()=>Promise<void>
+}) {
+  const [ids]=useState(()=>items.map(item=>Number(item.id)))
+  const [index,setIndex]=useState(0)
+  const [detail,setDetail]=useState<Item|null>(null)
+  const [error,setError]=useState('')
+  const [notice,setNotice]=useState('')
+  const [saving,setSaving]=useState(false)
+  const [retry,setRetry]=useState(0)
+  const id=ids[index]
+  useEffect(()=>{
+    if(id===undefined)return
+    let active=true
+    let timer:number
+    const load=async()=>{
+      try {
+        const result=await api('/cases/'+id)
+        if(active){setDetail(result);setError('')}
+      } catch(e) {
+        if(active)setError((e as Error).message)
+      } finally {
+        if(active)timer=window.setTimeout(load,4000)
+      }
+    }
+    void load()
+    return ()=>{active=false;window.clearTimeout(timer)}
+  },[id,retry])
+  const current=detail?.id===id?detail:null
+  const move=(next:number)=>{
+    setDetail(null)
+    setError('')
+    setNotice('')
+    setIndex(next)
+  }
+  const save=async(body:QuickReviewDecision)=>{
+    setSaving(true)
+    try {
+      await api('/cases/'+id+'/review',{method:'PATCH',body:JSON.stringify(body)})
+      move(index+1)
+      setNotice(t('notices.review_saved'))
+      await onUpdated().catch(e=>setError((e as Error).message))
+    } finally {
+      setSaving(false)
+    }
+  }
+  if(!ids.length)return <Empty title={t('cases.empty_title')}/>
+  return <section className="quick-review" aria-label={t('quick_review.title')}>
+    <div className="quick-review-nav">
+      <span role="status">{id===undefined?t('quick_review.finished'):t('quick_review.position',{current:index+1,total:ids.length})}</span>
+      <div className="button-row">
+        <button type="button" className="btn secondary small-btn" disabled={saving||index===0} onClick={()=>move(index-1)}>
+          <ChevronLeft size={16}/>{t('quick_review.previous')}
+        </button>
+        <button type="button" className="btn secondary small-btn" disabled={saving||id===undefined} onClick={()=>move(index+1)}>
+          {t('quick_review.skip')}<ChevronRight size={16}/>
+        </button>
+      </div>
+    </div>
+    {notice&&<p role="status" className="quick-review-notice">{notice}</p>}
+    {error&&<div role="alert" className="alert error">{error} <button className="text-btn" onClick={()=>setRetry(retry+1)}>{t('quick_review.retry')}</button></div>}
+    {current?<QuickReviewCard key={current.active_version_id} detail={current} categoryLabels={categoryLabels} saving={saving}
+      onZoom={onZoom} onOpenCase={onOpenCase} onSave={save}/>
+      :id!==undefined&&!error&&<p role="status" className="quick-review-notice"><LoaderCircle size={16} className="stage-spinner" aria-hidden="true"/>{t('app.loading')}</p>}
+  </section>
+}
+
+type QuickReviewDecision = {
+  category:string; status:'NEEDS_INFO'|'CONFIRMED'; note:string
+  acknowledge_exception:boolean; override_reason:string
+}
+
+function QuickReviewCard({detail,categoryLabels,saving,onZoom,onOpenCase,onSave}:{
+  detail:Item; categoryLabels:Record<string,string>; saving:boolean
+  onZoom:(url:string)=>void; onOpenCase:(id:number)=>void; onSave:(body:QuickReviewDecision)=>Promise<void>
+}) {
+  const [category,setCategory]=useState<string>(detail.hr_category||detail.analysis.category)
+  const [note,setNote]=useState<string>(detail.hr_note||'')
+  const [exceptionOpen,setExceptionOpen]=useState(false)
+  const [ack,setAck]=useState(false)
+  const [reason,setReason]=useState('')
+  const [error,setError]=useState('')
+  const categoryInput=useRef<HTMLSelectElement>(null)
+  const noteInput=useRef<HTMLTextAreaElement>(null)
+  const version=detail.versions.find((item:Item)=>item.id===detail.active_version_id)
+  const needsException=!detail.bulk_eligible&&detail.hr_status!=='CONFIRMED'
+  const categoryAvailable=Object.hasOwn(categoryLabels,category)
+  const choices=Object.entries(categoryLabels)
+  const submit=async(status:QuickReviewDecision['status'])=>{
+    setError('')
+    if(!categoryAvailable||(status==='CONFIRMED'&&category==='UNKNOWN')){
+      setError(t('quick_review.category_required'))
+      categoryInput.current?.focus()
+      return
+    }
+    if(status==='NEEDS_INFO'&&!note.trim()){
+      setError(t('quick_review.note_required'))
+      noteInput.current?.focus()
+      return
+    }
+    if(status==='CONFIRMED'&&needsException&&!exceptionOpen){
+      setExceptionOpen(true)
+      return
+    }
+    try {
+      await onSave({category,status,note,acknowledge_exception:status==='CONFIRMED'&&needsException&&ack,
+        override_reason:status==='CONFIRMED'&&needsException?reason:''})
+    } catch(e) {setError((e as Error).message)}
+  }
+  return <article className="quick-review-card">
+    <div className="quick-review-header">
+      <div>
+        <h3>{detail.code} <Badge value={detail.hr_status}/></h3>
+        <p>{[detail.data.name,detail.department,detail.data.date,detail.data.shift].filter(Boolean).join(' · ')}</p>
+      </div>
+      <button className="text-btn" disabled={saving} onClick={()=>onOpenCase(detail.id)}>
+        {t('quick_review.details')}<ChevronRight size={16}/>
+      </button>
+    </div>
+    <div className="quick-review-content">
+      <div className="quick-review-evidence">
+        <div className="explanation"><small>{t('cases.original_explanation_caption')}</small><p>{detail.data.explanation||t('cases.explanation_not_provided')}</p></div>
+        <CaseEvidence evidence={version?.evidence} analysisResult={detail.analysis} onZoom={onZoom} compact/>
+      </div>
+      <div className="quick-review-decision">
+        <CaseAssessment analysisResult={detail.analysis} categoryLabels={categoryLabels}/>
+        <section className="detail-section hr-result">
+          <div className="section-title"><ShieldCheck size={18}/><h3>{t('review.hr_conclusion')}</h3></div>
+          <label>{t('review.hr_category')}
+            <select ref={categoryInput} value={categoryAvailable?category:''} disabled={saving} onChange={e=>setCategory(e.target.value)}>
+              <option value="" disabled>{t('quick_review.category_required')}</option>
+              {choices.map(([value,label])=><option key={value} value={value}>{label}</option>)}
+            </select>
+          </label>
+          <label>{t('review.note')}
+            <textarea ref={noteInput} value={note} disabled={saving} maxLength={2000} rows={3} onChange={e=>setNote(e.target.value)} placeholder={t('review.note_placeholder')}/>
+          </label>
+          {detail.proposed_count>0&&<p>{t('quick_review.pending_version')}</p>}
+          {exceptionOpen&&needsException&&<div className="exception-review">
+            <label className="checkbox-label"><input type="checkbox" checked={ack} disabled={saving} onChange={e=>setAck(e.target.checked)}/>{t('review.exception_acknowledgement')}</label>
+            <label>{t('review.exception_reason')}<textarea autoFocus value={reason} disabled={saving} maxLength={1000} onChange={e=>setReason(e.target.value)} placeholder={t('review.exception_reason_placeholder')}/></label>
+          </div>}
+          {error&&<div className="alert error" role="alert">{error}</div>}
+          <div className="quick-review-actions">
+            <button className="btn secondary" disabled={saving} onClick={()=>void submit('NEEDS_INFO')}><AlertCircle size={16}/>{t('hr.needs_info')}</button>
+            <button className="btn primary" disabled={saving||detail.proposed_count>0||(exceptionOpen&&needsException&&(!ack||reason.trim().length<10))} onClick={()=>void submit('CONFIRMED')}>
+              <Check size={16}/>{t('quick_review.confirm')}
+            </button>
+          </div>
+        </section>
+      </div>
+    </div>
+  </article>
+}
+
 function App(){
   const [mailboxOpen,setMailboxOpen]=useState(false)
   const [user,setUser]=useState<Item|null>(null),[loading,setLoading]=useState(true),[loginError,setLoginError]=useState('')
@@ -105,6 +384,7 @@ function App(){
   const [selected,setSelected]=useState<number[]>([]),[detail,setDetail]=useState<Item|null>(null),[emailDetail,setEmailDetail]=useState<Item|null>(null),[bulkModal,setBulkModal]=useState(false),[zoom,setZoom]=useState('')
   const [notice,setNotice]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false),[mobile,setMobile]=useState(false)
   const [hrCategory,setHrCategory]=useState('UNKNOWN'),[hrStatus,setHrStatus]=useState('PENDING_REVIEW'),[hrNote,setHrNote]=useState(''),[ack,setAck]=useState(false),[override,setOverride]=useState(''),[versionReason,setVersionReason]=useState('')
+  const [quickReview,setQuickReview]=useState(false)
   const [ruleDraft,setRuleDraft]=useState<RuleDraft>(NEW_RULE),[ruleModal,setRuleModal]=useState('')
   const attendanceRules: AttendanceRule[] = bootstrap.rules
   const categoryLabels: Record<string, string> = Object.fromEntries(attendanceRules.map(rule=>[rule.category,rule.label]))
@@ -120,7 +400,7 @@ function App(){
     const activeQuery=new URLSearchParams({source:boot.mail_provider,period:activePeriod,cycle:activeCycle,department,search,category,assessment,hr_status:status,page:String(page),sort,direction}).toString()
     const [dash,list,mail,work]=await Promise.all([api('/dashboard?'+scope),api('/cases?'+activeQuery),api('/emails?'+scope),api('/jobs')])
     if(sequence!==refreshSequence.current)return
-    setDashboard(dash);setCases(list);setEmails(mail);setJobs(work);setBootstrap(boot)
+    setDashboard(dash);setCases({...list,query:activeQuery});setEmails(mail);setJobs(work);setBootstrap(boot)
     if(activePeriod!==period){setPeriod(activePeriod);setCycle('')}
   }
   const selectedMonth=bootstrap.periods.find((month:Item)=>month.id===period)
@@ -167,10 +447,13 @@ function App(){
     await action(()=>api('/sync',{method:'POST'}),t('notices.sync_queued'))
   }
   async function openCase(id:number){try{const c=await api('/cases/'+id);setDetail(c);setEmailDetail(null);setHrCategory(c.hr_category||c.analysis.category);setHrStatus(c.hr_status);setHrNote(c.hr_note);setAck(false);setOverride('');setVersionReason('')}catch(e:any){setError(e.message)}}
-  const analysisInProgress=['WAITING_PRIVACY','PENDING','RUNNING'].includes(detail?.analysis.status)
+  const analysisResult=detail?.analysis
+  const analysisInProgress=isAnalysisInProgress(analysisResult?.status)
   const detailId=detail?.id
+  const activeVersion=detail?.versions?.find((v:Item)=>v.id===detail.active_version_id)
+  const preprocessingPending=activeVersion?.evidence?.some((e:Item)=>e.privacy?.status==='PENDING')
   useEffect(()=>{
-    if (!detailId || !analysisInProgress) return
+    if (!detailId || (!analysisInProgress && !preprocessingPending)) return
     let active = true
     const timer = window.setInterval(async()=>{
       try {
@@ -181,13 +464,11 @@ function App(){
       }
     },4000)
     return ()=>{active=false;window.clearInterval(timer)}
-  },[detailId,analysisInProgress])
-  const activeVersion=detail?.versions?.find((v:Item)=>v.id===detail.active_version_id)
-  const vlmManualOnly=bootstrap?.mode==='VLM'&&activeVersion?.evidence?.length>0&&activeVersion.evidence.every((e:Item)=>e.privacy?.status==='MANUAL_REVIEW')
+  },[detailId,analysisInProgress,preprocessingPending])
   const currentNav=NAV.find(n=>n.id===tab)!
   const processing=jobs.some(j=>j.status==='PENDING'||j.status==='RUNNING')
   const selectRows=(checked:boolean)=>setSelected(checked?cases.items.filter((c:Item)=>c.bulk_eligible).map((c:Item)=>c.id):[])
-  const navigate=(value:string)=>{setTab(value);setMobile(false);const url=new URL(window.location.href);if(value==='assistant'||value==='chatbot')url.searchParams.set('app',value);else url.searchParams.delete('app');if(value!=='assistant')url.searchParams.delete('chat');window.history.replaceState({},'',url)}
+  const navigate=(value:string)=>{setTab(value);if(value!=='cases')setQuickReview(false);setMobile(false);const url=new URL(window.location.href);if(value==='assistant'||value==='chatbot')url.searchParams.set('app',value);else url.searchParams.delete('app');if(value!=='assistant')url.searchParams.delete('chat');window.history.replaceState({},'',url)}
   const saveReview=()=>action(async()=>{await api(`/cases/${detail!.id}/review`,{method:'PATCH',body:JSON.stringify({category:hrCategory,status:hrStatus,note:hrNote,acknowledge_exception:ack,override_reason:override})});await openCase(detail!.id)},t("notices.review_saved"))
   if(loading)return <div className="loading-screen"><RefreshCw className="spin"/>{t("app.loading")}</div>
   const sourceLabel = bootstrap.synthetic ? t('common.synthetic_data')
@@ -326,10 +607,7 @@ function App(){
               {t('calendar.current_month')}
             </button>
           </div>
-          <div className="mode-label"><span className={processing?'pulse':''}/>
-            {processingLabel(bootstrap.mode)}
-            <small>· {processing?t('processing.running'):t('processing.ready')}</small>
-          </div>
+          <div className="mode-label">{processingLabel(bootstrap.mode)}</div>
         </section>}
         {['overview','inbox','cases','rules'].includes(tab)&&selectedMonth&&<details className="attendance-schedule">
           <summary><CalendarDays size={17}/><span>{t('calendar.title')}</span><ChevronDown size={16}/></summary>
@@ -344,7 +622,13 @@ function App(){
     {tab==='overview'&&<div className="stats-grid">{[{label:t("overview.total_cases"),value:dashboard.total,icon:FolderCheck,caption:t("overview.imported_caption"),status:'',tone:'blue'},{label:t("hr.pending_review"),value:dashboard.pending,icon:Clock3,caption:t("overview.sufficient_count", {value0: dashboard.sufficient||0}),status:'PENDING_REVIEW',tone:'amber'},{label:t("hr.needs_info"),value:dashboard.needs_info,icon:AlertCircle,caption:t("overview.needs_info_caption"),status:'NEEDS_INFO',tone:'rose'},{label:t("hr.confirmed"),value:dashboard.confirmed,icon:CheckCheck,caption:t("overview.confirmed_caption"),status:'CONFIRMED',tone:'mint'}].map(s=><button key={s.label} className={'stat-card '+s.tone} onClick={()=>showCases({status:s.status})}><div className="stat-top"><span>{s.label}</span><span className="stat-icon"><s.icon size={18}/></span></div><strong>{s.value??'—'}</strong><p>{s.caption}<ArrowRight size={14}/></p></button>)}</div>}
     {['overview','inbox','cases'].includes(tab)&&<AnalysisControls api={api} query={new URLSearchParams({source:bootstrap.mail_provider,period,cycle,department}).toString()} onUpdated={refresh} scopeLabel={t('analysis.scope_selected')} disabled={busy}/>}
     {tab==='overview'&&<><div className="overview-columns"><section className="panel department-panel"><div className="panel-heading"><div><h2>{t("overview.intake_progress")}</h2><p>{t("overview.department_progress_caption")}</p></div><span className="chip">{dashboard.departments_sent||0}/{dashboard.departments_expected??0}{t("overview.sent_suffix")}</span></div><div className="department-list">{dashboard.by_department?.map((d:Item)=><div className="department-row" key={d.id}><span className="attendance-department-icon" aria-hidden="true"><Users size={17}/></span><div className="department-info"><div><strong>{d.name.replace(t("common.synthetic_suffix"),'')}</strong><span>{d.count}{t("common.cases_suffix")}</span></div><div className="progress-track"><span style={{width:(bootstrap.mail_provider==='outlook'?(d.received?100:0):Math.min(100,d.count/12*100))+'%'}}/></div></div><span className={'receive-label '+(d.received?'received':'')}>{d.received?<><Check size={13}/>{t("overview.received")}</>:t("overview.not_received")}</span></div>)}</div><div className="panel-foot"><span><Mail size={15}/>{dashboard.emails||0}{t("overview.received_email_suffix")}</span><button className="text-btn" onClick={()=>navigate('inbox')}>{t("actions.open_inbox")}<ArrowRight size={14}/></button></div></section><section className="panel attention-panel"><div className="panel-heading"><div><h2>{t("overview.attention")}</h2><p>{t("overview.next_steps")}</p></div></div><button className="attention-item" onClick={()=>showCases({assessment:'SUFFICIENT',status:'PENDING_REVIEW'})}><span className="attention-icon green"><CheckCircle2 size={20}/></span><div><strong>{dashboard.sufficient||0}{t("overview.sufficient_cases_suffix")}</strong><p>{t("overview.pending_sufficient_caption")}</p></div><ChevronRight size={17}/></button><button className="attention-item" onClick={()=>navigate('inbox')}><span className="attention-icon amber"><Inbox size={20}/></span><div><strong>{dashboard.email_errors||0}{t("overview.email_errors_suffix")}</strong><p>{t("overview.email_errors_caption")}</p></div><ChevronRight size={17}/></button><button className="attention-item" onClick={()=>showCases({category:'UNKNOWN'})}><span className="attention-icon violet"><CircleHelp size={20}/></span><div><strong>{dashboard.unknown||0}{t("overview.unknown_cases_suffix")}</strong><p>{t("overview.unknown_cases_caption")}</p></div><ChevronRight size={17}/></button><div className="demo-disclaimer"><ShieldCheck size={17}/><p>{t("overview.hr_confirmation_notice")}</p></div></section></div><section className="panel"><div className="panel-heading"><div><h2>{t("overview.period_cases")}</h2><p>{t("overview.source_trace_caption")}</p></div><button className="text-btn" onClick={()=>showCases()}>{t("actions.view_all")}<ArrowRight size={15}/></button></div><CaseTable categoryLabels={categoryLabels} items={cases.items.slice(0,5)} selected={[]} setSelected={()=>{}} openCase={openCase} compact/></section></>}
-    {tab==='cases'&&<section className="panel cases-panel"><div className="status-tabs">{[['',t("filters.all_cases")],['PENDING_REVIEW',t("filters.pending_review")],['NEEDS_INFO',t("hr.needs_info")],['CONFIRMED',t("hr.confirmed")]].map(([id,label])=><button key={id} className={status===id?'active':''} onClick={()=>setStatus(id)}>{label}{id===''&&<span>{dashboard.total||0}</span>}</button>)}</div><div className="table-toolbar"><div className="search-field"><Search size={17}/><input aria-label={t("filters.search_cases")} placeholder={t("filters.search_placeholder")} value={search} onChange={e=>setSearch(e.target.value)}/></div><div className="filter-group"><select aria-label={t("filters.category")} value={category} onChange={e=>setCategory(e.target.value)}><option value="">{t("filters.all_categories")}</option>{Object.entries(categoryLabels).map(([id,label])=><option key={id} value={id}>{String(label)}</option>)}</select><select aria-label={t("filters.assessment")} value={assessment} onChange={e=>setAssessment(e.target.value)}><option value="">{t("filters.all_assessments")}</option>{Object.entries(ASSESS).map(([id,label])=><option key={id} value={id}>{String(label)}</option>)}</select><select aria-label={t("filters.sort")} value={sort+':'+direction} onChange={e=>{const [s,d]=e.target.value.split(':');setSort(s);setDirection(d)}}><option value="code:asc">{t("sort.code_ascending")}</option><option value="code:desc">{t("sort.code_descending")}</option><option value="date:desc">{t("sort.newest_date")}</option><option value="employee:asc">{t("fields.employee_code")}</option><option value="status:asc">{t("fields.hr_status")}</option></select></div></div>{selected.length>0&&<div className="selection-bar"><span><CheckCheck size={16}/><strong>{selected.length}</strong>{t("selection.selected_cases_suffix")}</span><button className="btn primary small-btn" onClick={()=>setBulkModal(true)}>{t("actions.bulk_confirm")}</button><button className="text-btn" onClick={()=>setSelected([])}>{t("actions.clear_selection")}</button></div>}<CaseTable categoryLabels={categoryLabels} items={cases.items} selected={selected} setSelected={setSelected} openCase={openCase} onSelectAll={selectRows}/><div className="pagination"><span>{cases.total?t("pagination.range", {value0: (page-1)*15+1, value1: Math.min(page*15,cases.total), value2: cases.total}):'0'}{t("pagination.cases_suffix")}<small>{t("selection.eligible_only")}</small></span><div><button className="icon-btn" aria-label={t("actions.previous_page")} disabled={page<=1} onClick={()=>setPage(page-1)}><ChevronLeft size={17}/></button><span>{t("pagination.page_prefix")}{page}</span><button className="icon-btn" aria-label={t("actions.next_page")} disabled={page*15>=cases.total} onClick={()=>setPage(page+1)}><ChevronRight size={17}/></button></div></div></section>}
+    {tab==='cases'&&<section className="panel cases-panel"><div className="status-tabs">{[['',t("filters.all_cases")],['PENDING_REVIEW',t("filters.pending_review")],['NEEDS_INFO',t("hr.needs_info")],['CONFIRMED',t("hr.confirmed")]].map(([id,label])=><button key={id} className={status===id?'active':''} onClick={()=>setStatus(id)}>{label}{id===''&&<span>{dashboard.total||0}</span>}</button>)}</div><div className="table-toolbar"><div className="search-field"><Search size={17}/><input aria-label={t("filters.search_cases")} placeholder={t("filters.search_placeholder")} value={search} onChange={e=>setSearch(e.target.value)}/></div><div className="filter-group"><select aria-label={t("filters.category")} value={category} onChange={e=>setCategory(e.target.value)}><option value="">{t("filters.all_categories")}</option>{Object.entries(categoryLabels).map(([id,label])=><option key={id} value={id}>{String(label)}</option>)}</select><select aria-label={t("filters.assessment")} value={assessment} onChange={e=>setAssessment(e.target.value)}><option value="">{t("filters.all_assessments")}</option>{Object.entries(ASSESS).map(([id,label])=><option key={id} value={id}>{String(label)}</option>)}</select><select aria-label={t("filters.sort")} value={sort+':'+direction} onChange={e=>{const [s,d]=e.target.value.split(':');setSort(s);setDirection(d)}}><option value="code:asc">{t("sort.code_ascending")}</option><option value="code:desc">{t("sort.code_descending")}</option><option value="date:desc">{t("sort.newest_date")}</option><option value="employee:asc">{t("fields.employee_code")}</option><option value="status:asc">{t("fields.hr_status")}</option></select></div></div>{!quickReview&&selected.length>0&&<div className="selection-bar"><span><CheckCheck size={16}/><strong>{selected.length}</strong>{t("selection.selected_cases_suffix")}</span><button className="btn primary small-btn" onClick={()=>setBulkModal(true)}>{t("actions.bulk_confirm")}</button><button className="text-btn" onClick={()=>setSelected([])}>{t("actions.clear_selection")}</button></div>}<div className="case-view-toggle">
+      <button className="btn secondary small-btn" aria-pressed={!quickReview} onClick={()=>setQuickReview(false)}><LayoutDashboard size={15}/>{t('quick_review.table')}</button>
+      <button className="btn secondary small-btn" aria-pressed={quickReview} onClick={()=>setQuickReview(true)}><CheckCheck size={16}/>{t('quick_review.title')}</button>
+    </div>
+    {quickReview?(cases.query===query?<QuickReview key={query} items={cases.items} categoryLabels={categoryLabels} onZoom={setZoom} onOpenCase={openCase} onUpdated={refresh}/>
+      :<p className="quick-review-notice" role="status">{t('app.loading')}</p>)
+      :<CaseTable categoryLabels={categoryLabels} items={cases.items} selected={selected} setSelected={setSelected} openCase={openCase} onSelectAll={selectRows}/>}<div className="pagination"><span>{cases.total?t("pagination.range", {value0: (page-1)*15+1, value1: Math.min(page*15,cases.total), value2: cases.total}):'0'}{t("pagination.cases_suffix")}<small>{t(quickReview?"quick_review.page_scope":"selection.eligible_only")}</small></span><div><button className="icon-btn" aria-label={t("actions.previous_page")} disabled={page<=1} onClick={()=>setPage(page-1)}><ChevronLeft size={17}/></button><span>{t("pagination.page_prefix")}{page}</span><button className="icon-btn" aria-label={t("actions.next_page")} disabled={page*15>=cases.total} onClick={()=>setPage(page+1)}><ChevronRight size={17}/></button></div></div></section>}
     {tab==='inbox'&&<section className="panel"><div className="panel-heading"><div><h2>{t("inbox.title")}<span className="count-label">{emails.length}</span></h2><p>{t("inbox.read_state_notice")}</p></div><button className="btn secondary small-btn" disabled={busy} onClick={()=>bootstrap.mail_provider==='outlook'?setMailboxOpen(true):action(sendDemo,t("notices.demo_mail_queued"))}><Mail size={15}/>{bootstrap.mail_provider==='outlook'?t("outlook.settings"):t("actions.send_demo_mail")}</button></div><div className="table-scroll"><table><thead><tr><th>{t("inbox.sender_column")}</th><th>{t("inbox.subject_column")}</th><th>File</th><th>{t("inbox.case_counts_column")}</th><th>{t("inbox.intake_column")}</th><th/></tr></thead><tbody>{emails.map(e=><tr key={e.id} onClick={async()=>{try{setEmailDetail(await api('/emails/'+e.id))}catch(err:any){setError(err.message)}}}><td><strong>{e.department.replace(t("common.synthetic_suffix"),'')}</strong><small>{e.sender}</small></td><td><strong className="email-subject">{e.subject}</strong><small>{dateTime(e.received_at)}</small><small className="cycle-reference">{cycleReference(e.cycle_start)}</small></td><td><span className="file-counter"><FileSpreadsheet size={16}/>{e.attachments.length} file</span></td><td><strong>{e.case_count??0}{t("inbox.case_count_separator")}{e.row_count}{t("common.rows_suffix")}</strong><small className={e.error_count?'red-text':''}>{e.error_count}{t("common.errors_suffix")}</small></td><td><Badge value={e.status} kind="intake"/></td><td><ChevronRight size={16}/></td></tr>)}</tbody></table></div>{!emails.length&&<Empty title={t("inbox.empty_title")}>{t("inbox.empty_hint")}</Empty>}</section>}
     {tab==='rules'&&<>
       <div className="info-banner"><BookOpen size={23}/><div><h3>{t("rules.demo_policy_notice")}</h3><p>{t("rules.change_warning")}</p></div></div>
@@ -368,7 +652,7 @@ function App(){
           </div>)}
         </div>
       </section>
-      <div className="info-banner neutral"><Server size={23}/><div><h3>{t('rules.vlm_notice')}</h3><p>{t("rules.processing_configuration_hint")}</p></div></div>
+      <div className="info-banner neutral"><Server size={23}/><div><h3>{t('rules.vlm_notice')}</h3><p>{t('analysis.workflow')}</p></div></div>
     </>}
     {tab==='jobs'&&<JobsQueue jobs={jobs} busy={busy} onRetry={id=>action(()=>api('/jobs/'+id+'/retry',{method:'POST'}),t('notices.job_retry_queued'))}/>}
     <footer className="page-footer"><span>TallyV <span>·</span>{t("app.footer_workspace")}</span><span><ShieldCheck size={13}/>{bootstrap.synthetic?t("app.synthetic_footer"):(bootstrap.mailbox?.transport==='composio'?t("composio.processing_notice"):t('rules.vlm_notice'))}</span></footer></main></div>
@@ -378,10 +662,12 @@ function App(){
           <div>
             <span className="eyebrow">{t("cases.detail_eyebrow")}</span>
             <h2>{detail.code}<Badge value={detail.hr_status}/></h2>
-            <button className="btn secondary small-btn" disabled={busy||analysisInProgress||vlmManualOnly}
-              title={vlmManualOnly?t('privacy.vlm_blocked'):analysisInProgress?t('analysis.processing'):undefined} onClick={()=>action(async()=>{
+            <button className="btn secondary small-btn" disabled={busy||analysisInProgress}
+              title={analysisInProgress?t('analysis.processing'):undefined} onClick={()=>action(async()=>{
               await api('/cases/'+detail.id+'/reanalyze',{method:'POST'})
-              setDetail(null)
+              const updated=await api('/cases/'+detail.id)
+              setDetail(current=>current?.id===detail.id?updated:current)
+              if(updated.hr_status!==detail.hr_status)setHrStatus(updated.hr_status)
             },t("notices.reanalysis_queued"))}>
               <RefreshCw size={14}/>
               {t('actions.reanalyze')}
@@ -399,11 +685,8 @@ function App(){
         </div>
         <div className="drawer-content"><section className="detail-section" id="case-information"><div className="section-title"><Users size={17}/><h3>{t("cases.source_section")}</h3></div><div className="detail-fields">{[[t("calendar.cycle_filter"),cycleReference(detail.cycle_start)],[t("fields.employee_name"),detail.data.name],[t("fields.employee_code"),detail.employee_id],[t("fields.department"),detail.department],[t("fields.occurrence_date"),detail.data.date],[t("fields.shift"),detail.data.shift||t("common.not_provided")],[t("fields.missing_punch"),detail.data.punch||t("common.not_provided")]].map(([label,value])=><div key={label}><small>{label}</small><strong>{value}</strong></div>)}</div><div className="explanation"><small>{t("cases.original_explanation_caption")}</small><p>{detail.data.explanation||t("cases.explanation_not_provided")}</p></div><div className="source-ref"><Mail size={14}/><button className="text-btn" onClick={async()=>{setEmailDetail(await api('/emails/'+detail.source.email_id));setDetail(null)}}>Email #{detail.source.email_id}</button><ChevronRight size={12}/><span>File #{detail.source.attachment_id}</span><ChevronRight size={12}/><span>{detail.source.sheet}{t("source.row_separator")}{detail.source.row}</span></div></section>
     {detail.proposed_count>0&&<section className="detail-section version-warning"><h3>{t("versions.count_prefix")}{detail.proposed_count}{t("versions.proposed_count_suffix")}</h3><p>{t("versions.review_notice")}</p>{detail.versions.filter((v:Item)=>v.status==='PROPOSED').map((v:Item)=><div className="proposed-version" key={v.id}><strong>{t("versions.proposal_prefix")}{v.id} · file #{v.attachment_id}{t("source.comma_row_separator")}{v.row_number}</strong><div className="version-diff">{Object.keys(v.normalized).filter(k=>v.normalized[k]!==detail.data[k]).map(k=><p key={k}><small>{({explanation:t("fields.explanation"),shift:t("fields.shift"),punch:t("fields.missing_punch"),date:t("fields.date")} as Item)[k]||k}</small><del>{detail.data[k]||t("common.empty_value")}</del><ins>{v.normalized[k]||t("common.empty_value")}</ins></p>)}</div><div className="evidence-thumbs">{v.evidence.map((e:Item)=><button key={e.id} onClick={()=>setZoom(e.url)}><img src={e.url} alt={t("versions.evidence_alt_prefix")+e.anchor}/></button>)}</div><label>{t("versions.decision_reason")}<input value={versionReason} onChange={e=>setVersionReason(e.target.value)} placeholder={t("versions.reason_placeholder")}/></label><div className="button-row"><button className="btn primary small-btn" disabled={busy||versionReason.trim().length<5} onClick={()=>action(async()=>{await api(`/cases/${detail.id}/versions/${v.id}`,{method:'POST',body:JSON.stringify({action:'APPLY',reason:versionReason})});await openCase(detail.id)},t("notices.version_applied"))}>{t("actions.apply_version")}</button><button className="btn secondary small-btn" disabled={busy||versionReason.trim().length<5} onClick={()=>action(async()=>{await api(`/cases/${detail.id}/versions/${v.id}`,{method:'POST',body:JSON.stringify({action:'REJECT',reason:versionReason})});await openCase(detail.id)},t("notices.version_rejected"))}>{t("actions.keep_current_source")}</button></div></div>)}</section>}
-    <section className="detail-section" id="case-evidence"><div className="section-title"><FileSpreadsheet size={17}/><h3>{t("evidence.section_title")}</h3><span className="count-label">{activeVersion?.evidence.length||0}</span></div>{!activeVersion?.evidence.length&&<p className="muted">{t("evidence.none")}</p>}<div className="evidence-grid">{activeVersion?.evidence.map((e:Item)=><article className="evidence-card" key={e.id}><button className="evidence-image" onClick={()=>setZoom(e.url)}><img src={e.url} alt={t("evidence.image_alt_prefix")+e.anchor}/><span><ZoomIn size={15}/>{t("actions.zoom_image")}</span></button><div className="evidence-description"><div><strong>{t("evidence.image_number_prefix")}{e.id} · {e.anchor}</strong></div><EvidenceObservations evidence={e}/><ul>{e.checks.map((c:string,i:number)=><li key={i} className={c.startsWith('CONFLICT')?'red-text':''}>{c.replace('CONFLICT: ','').replace('MISSING: ','')}</li>)}</ul></div></article>)}</div></section>
-    <section className="detail-section system-result" id="case-analysis"><div className="section-title"><Sparkles size={17}/><h3>{t("analysis.section_title")}</h3>{detail.analysis.status==='COMPLETED'&&<span className="chip">{processingLabel(detail.analysis.method)}</span>}</div>
-    {detail.analysis.status==='COMPLETED'?<><div className="button-row"><Category value={detail.analysis.category} labels={categoryLabels}/><Badge value={detail.analysis.assessment} kind="assessment"/></div><p>{detail.analysis.reason}</p>{!!detail.analysis.extracted?.supporting_evidence_ids?.length&&<p className="muted">{t('analysis.supporting_evidence',{references:detail.analysis.extracted.supporting_evidence_ids.map((id:number)=>`#${id}`).join(', ')})}</p>}{detail.analysis.missing.length>0&&<div className="findings"><strong>{t("analysis.missing_information")}</strong><ul>{detail.analysis.missing.map((m:string)=><li key={m}>{m}</li>)}</ul></div>}{detail.analysis.conflicts.length>0&&<div className="findings red-text"><strong>{t("analysis.conflicts")}</strong><ul>{detail.analysis.conflicts.map((m:string)=><li key={m}>{m}</li>)}</ul></div>}<details><summary>{t("analysis.extracted_details")}</summary><pre>{JSON.stringify(detail.analysis.extracted,null,2)}</pre><small>{t("analysis.rule_version_prefix")}{detail.analysis.rules_version} {detail.analysis.model&&'· Model '+detail.analysis.model}</small></details></>:<><Badge value={detail.analysis.status}/><p>{detail.analysis.status==='MANUAL_REVIEW'?detail.analysis.reason:t('analysis.manual_description')}</p></>}
-    {detail.analysis.error&&<div className="alert error">{detail.analysis.error}</div>}
-    </section>
+    <CaseEvidence id="case-evidence" evidence={activeVersion?.evidence} analysisResult={analysisResult} onZoom={setZoom}/>
+    <CaseAssessment id="case-analysis" analysisResult={analysisResult} categoryLabels={categoryLabels}/>
     <section className="detail-section hr-result" id="case-review"><div className="section-title"><ShieldCheck size={18}/><h3>{t("review.hr_conclusion")}</h3></div><p>{t("review.independent_conclusion_notice")}</p><div className="form-grid"><label>{t("review.hr_category")}<select value={hrCategory} onChange={e=>setHrCategory(e.target.value)}>{Object.entries(categoryLabels).map(([key,value])=><option key={key} value={key}>{String(value)}</option>)}</select></label><label>{t("review.status")}<select value={hrStatus} onChange={e=>setHrStatus(e.target.value)}>{Object.entries(HR).filter(([key])=>key!=='SUPERSEDED').map(([key,value])=><option key={key} value={key}>{String(value)}</option>)}</select></label></div><label>{t("review.note")}<textarea value={hrNote} onChange={e=>setHrNote(e.target.value)} placeholder={t("review.note_placeholder")} rows={3}/></label>{hrStatus==='CONFIRMED'&&!detail.bulk_eligible&&detail.hr_status!=='CONFIRMED'&&<div className="exception-review"><label className="checkbox-label"><input type="checkbox" checked={ack} onChange={e=>setAck(e.target.checked)}/>{t("review.exception_acknowledgement")}</label><label>{t("review.exception_reason")}<textarea value={override} onChange={e=>setOverride(e.target.value)} placeholder={t("review.exception_reason_placeholder")}/></label></div>}{detail.confirmed_at&&<p className="muted">{t("review.confirmed_by_prefix")}{detail.confirmed_by} · {dateTime(detail.confirmed_at)}</p>}<button className="btn primary" disabled={busy||detail.proposed_count>0&&hrStatus==='CONFIRMED'} onClick={saveReview}><Check size={16}/>{t("actions.save_review")}</button></section>
     <section className="detail-section"><div className="section-title"><Clock3 size={17}/><h3>{t("audit.section_title")}</h3></div>{!detail.audit.length&&<p className="muted">{t("audit.empty")}</p>}{detail.audit.map((a:Item)=><div className="audit-item" key={a.id}><span className="audit-dot"/><div><strong>{({HR_SUBMISSION_REQUESTED:t("integration.submission_requested_audit"),HR_SUBMISSION_APPLIED:t("integration.submission_applied_audit"),HR_SUBMISSION_CANCELLED:t("integration.submission_cancelled_audit"),HR_SUBMISSION_FAILED:t("integration.submission_failed_audit"),HR_SUBMISSION_RETRIED:t("integration.submission_retried_audit"),HR_REVIEW:t("audit.hr_review"),BULK_CONFIRM:t("actions.bulk_confirm"),VERSION_PROPOSED:t("audit.version_proposed"),VERSION_APPLY:t("actions.apply_version"),VERSION_REJECT:t("audit.version_rejected"),REANALYZE:t("actions.reanalyze"),RULE_CHANGED:t("audit.rule_changed")} as Item)[a.action]||a.action}</strong><small>{a.actor} · {dateTime(a.created_at)}</small><p>{a.reason}</p><details><summary>{t("audit.view_changes")}</summary><pre>{JSON.stringify({before:a.before,after:a.after},null,2)}</pre></details></div></div>)}<details><summary>{t("versions.history_prefix")}{detail.versions.length})</summary>{detail.versions.map((v:Item)=><div className="version-history" key={v.id}><span>#{v.id} · file #{v.attachment_id}{t("source.row_separator")}{v.row_number}</span><Badge value={v.status}/><details><summary>{t("versions.original_data")}</summary><pre>{JSON.stringify(v.raw,null,2)}</pre></details></div>)}</details></section></div></section></div>}
     {emailDetail&&<div className="modal-backdrop" onClick={()=>setEmailDetail(null)}><section className="detail-drawer email-drawer" role="dialog" aria-modal="true" aria-label={t("inbox.detail_label")} onClick={e=>e.stopPropagation()}><div className="drawer-header"><div><span className="eyebrow">{t("inbox.detail_eyebrow")}{emailDetail.id}</span><h2>{t("inbox.intake_detail_title")}</h2></div><button className="icon-btn" aria-label={t("actions.close_email")} onClick={()=>setEmailDetail(null)}><X/></button></div><div className="drawer-content"><h3>{emailDetail.subject}</h3><p className="cycle-reference">{cycleReference(emailDetail.cycle_start)}</p><Badge value={emailDetail.status} kind="intake"/><p className="muted">{emailDetail.sender} → {emailDetail.recipient}</p><p className="muted">{t("inbox.received_prefix")}{dateTime(emailDetail.received_at)}{t("inbox.ingested_separator")}{dateTime(emailDetail.ingested_at)}</p><details><summary>{t("source.reference")}</summary><pre>{emailDetail.source_id}{'\n'}{emailDetail.message_id}</pre></details><pre className="email-body">{emailDetail.body}</pre>{emailDetail.error&&<div className="alert error">{emailDetail.error}</div>}<h3>{t("inbox.attachments")}</h3>{emailDetail.attachments.map((a:Item)=><div className="attachment-card" key={a.id}><FileSpreadsheet size={25}/><div><a href={'/api/attachments/'+a.id}>{a.name}</a><small>{Math.round(a.size/1024)} KB · {a.sha256.slice(0,12)}…</small>{a.error&&<p className="red-text">{a.error}</p>}{a.duplicate_of&&<p>{t("inbox.duplicate_reference_prefix")}{a.duplicate_of}</p>}</div><Badge value={a.status} kind="intake"/></div>)}{!emailDetail.attachments.length&&<p className="muted">{t("inbox.no_attachments")}</p>}<button className="btn secondary" disabled={busy} onClick={()=>action(()=>api('/emails/'+emailDetail.id+'/retry',{method:'POST'}),t("notices.email_retry_queued"))}><RefreshCw size={15}/>{t("actions.retry_intake")}</button>{emailDetail.batches.map((b:Item)=><section className="detail-section" key={b.id}><h3>{t("inbox.batch_reconciliation_prefix")}{b.attachment_id} · {b.sheet}</h3><div className="batch-counts"><span>{b.row_count}{t("inbox.source_rows_suffix")}</span><span>{b.imported_count}{t("inbox.imported_rows_suffix")}</span><span>{b.duplicate_count}{t("inbox.duplicate_rows_suffix")}</span><span>{b.error_count}{t("inbox.error_rows_suffix")}</span></div>{b.errors.map((e:Item,i:number)=><div className="row-error" key={i}><strong>{e.row?t("source.row_prefix")+e.row:t("inbox.file_or_anchor_error")}</strong><p>{e.codes.join('; ')}</p>{e.raw&&<details><summary>{t("source.raw_data")}</summary><pre>{JSON.stringify(e.raw,null,2)}</pre></details>}</div>)}</section>)}<h3>{t("inbox.related_cases")}</h3><div className="email-cases">{emailDetail.cases.map((c:Item,i:number)=><button className="btn secondary small-btn" key={i} onClick={()=>openCase(c.id)}>{c.code}{t("source.row_separator")}{c.row}<ArrowRight size={13}/></button>)}</div></div></section></div>}
@@ -474,8 +757,10 @@ function CaseTable({items,selected,setSelected,openCase,compact=false,onSelectAl
           {!compact&&<td><span className="explanation-preview" title={item.data.explanation}>
             {item.data.explanation||t('cases.no_explanation')}</span></td>}
           <td>{item.analysis.status==='COMPLETED'?<><Category value={item.analysis.category} labels={categoryLabels}/>
-            <small className="method-caption">{processingLabel(item.analysis.method)}</small></>:<Badge value={item.analysis.status}/>}</td>
-          <td>{item.analysis.status==='COMPLETED'?<Badge value={item.analysis.assessment} kind="assessment"/>:<span className="muted">—</span>}</td>
+            <small className="method-caption">{processingLabel(item.analysis.method)}</small></>:<span className="muted">—</span>}</td>
+          <td>{item.analysis.status==='COMPLETED'?<Badge value={item.analysis.assessment} kind="assessment"/>
+            :isAnalysisInProgress(item.analysis.status)?<AnalysisProgress status={item.analysis.status} compact/>
+            :<AnalysisBadge status={item.analysis.status}/>}</td>
           {!compact&&<td><span className="evidence-count"><FileSpreadsheet size={14}/>{item.evidence_count}</span></td>}
           <td><Badge value={item.hr_status}/></td>
           <td><ChevronRight size={16} aria-hidden="true"/></td>

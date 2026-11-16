@@ -24,6 +24,9 @@ def analysis_status(db: Session, selection: CaseFilters) -> dict:
     return {
         "waiting": sum(a.status in {"NOT_STARTED", "MANUAL_REVIEW"} for a in results),
         "processing": sum(a.status in {"WAITING_PRIVACY", "PENDING", "RUNNING"} for a in results),
+        "preprocessing": sum(a.status == "WAITING_PRIVACY" for a in results),
+        "vlm_waiting": sum(a.status == "PENDING" for a in results),
+        "vlm_running": sum(a.status == "RUNNING" for a in results),
         "completed": sum(a.status == "COMPLETED" for a in results),
         "failed": sum(a.status == "FAILED" for a in results),
         "importing": bool(sync_job and sync_job.status in {"PENDING", "RUNNING"})

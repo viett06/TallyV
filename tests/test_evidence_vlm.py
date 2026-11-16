@@ -255,20 +255,30 @@ def test_all_cases_finish_preprocessing_before_any_ai_call(pipeline, monkeypatch
     requests = inference(monkeypatch)
     order = []
     actual_preprocess, actual_assess = image_background._preprocess, image_background._assess
+    actual_inference = analysis.evidence_vlm.assess
 
     def preprocess(sessions, version_id):
+        assert client.get("/api/analysis").json()["preprocessing"] == 2
         actual_preprocess(sessions, version_id)
         order.append("privacy_done")
 
     def assess(sessions, payload):
+        status = client.get("/api/analysis").json()
+        assert status["preprocessing"] == 0 and status["vlm_waiting"] > 0
         order.append("ai")
         actual_assess(sessions, payload)
 
+    def infer(*args):
+        assert client.get("/api/analysis").json()["vlm_running"] == 1
+        return actual_inference(*args)
+
     monkeypatch.setattr(image_background, "_preprocess", preprocess)
     monkeypatch.setattr(image_background, "_assess", assess)
+    monkeypatch.setattr(analysis.evidence_vlm, "assess", infer)
     assert client.post("/api/analysis").json() == {"queued": 2}
     background.finish()
     assert order == ["privacy_done", "privacy_done", "ai", "ai"] and len(requests) == 2
+    assert client.get("/api/analysis").json()["vlm_running"] == 0
 
 
 def test_tampered_artifact_never_reaches_model(pipeline, monkeypatch):

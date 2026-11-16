@@ -35,6 +35,22 @@ def _inputs(sessions, batch):
 def _assess(sessions, payload):
     from app.services.analysis import analyze
 
+    # Publish the running state before analyze holds the case lock during inference.
+    if 1 <= len(payload["images"]) <= 10:
+        with sessions() as db:
+            version = cases_crud.get_version(db, payload["version_id"])
+            case = cases_crud.get_for_update(db, version.case_id) if version else None
+            result = cases_crud.get_analysis(db, payload["version_id"])
+            if (
+                not case
+                or case.deleted_at
+                or not result
+                or result.status != "PENDING"
+                or result.extracted.get("privacy_request_id") != payload["privacy_request_id"]
+            ):
+                return
+            result.status = "RUNNING"
+            db.commit()
     with sessions() as db:
         analyze(db, payload["version_id"], privacy_payload=payload)
         db.commit()

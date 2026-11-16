@@ -26,6 +26,9 @@ class SyncQueued(JobQueued):
 class AnalysisStatus(BaseModel):
     waiting: int
     processing: int
+    preprocessing: int
+    vlm_waiting: int
+    vlm_running: int
     completed: int
     failed: int
     importing: bool

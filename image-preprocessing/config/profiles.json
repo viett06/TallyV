@@ -1,4 +1,53 @@
 {
   "schema_version": 1,
-  "profiles": []
+  "profiles": [
+    {
+      "id": "tallyv-demo-synthetic-evidence",
+      "enabled": true,
+      "kind": "DEVICE_ERROR",
+      "width": 960,
+      "height": 480,
+      "anchors": [
+        {
+          "rect": {
+            "x": 30,
+            "y": 24,
+            "w": 30,
+            "h": 23
+          },
+          "rgb_base64": "FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+////////////////////////////////////////////////////////Ml1WFUY+FUY+FUY+FUY+FUY+FUY+FUY+MVxV/v7+////////////vMrIFUY+FUY+////////////////////////////////////////////////////////Ml1WFUY+FUY+FUY+FUY+FUY+FUY+FUY+iqOf/////////////////f79MVxVFUY+////////////////////////////////////////////////////////Ml1WFUY+FUY+FUY+FUY+FUY+FUY+Fkc/4+no////////////////////iqOfFUY+////////////////////////////////////////////////////////Ml1WFUY+FUY+FUY+FUY+FUY+FUY+VHhy////////////////////////5OrpGEhAFUY+FUY+FUY+SG9o////////////+fr6FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+rr+8/////////v7+t8bE////////////Wnx3FUY+FUY+FUY+SG9o////////////+fr6FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+JVJL+fr6////////zdfVVXlz////////////t8bDFUY+FUY+FUY+SG9o////////////+fr6FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+eJSQ////////////g52ZGkpC8PPz////////+/z8FUY+FUY+FUY+SG9o////////////+fr6FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+09zb////////////O2RdFUY+q726////////////FUY+FUY+FUY+SG9o////////////+fr6FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+Qmpj////////////3OPiFUY+FUY+YIF8////////////FUY+FUY+FUY+SG9o////////////+fr6FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+nbGu////////////lKqmFUY+FUY+Hk1G9/j4////////FUY+FUY+FUY+SG9o////////////+fr6FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+G0tD7/Py////////////SnBqFUY+FUY+FUY+t8bD////////FUY+FUY+FUY+SG9o////////////+fr6FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+Z4eB////////////6u7uF0dAFUY+FUY+FUY+a4qF////////FUY+FUY+FUY+SG9o////////////+fr6FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+wc7M////////////o7azFUY+FUY+FUY+FUY+JVJL+/z8////FUY+FUY+FUY+SG9o////////////+fr6FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+MVxV/v7+////////////////////////////////////////////FUY+FUY+FUY+SG9o////////////+fr6FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+iqOf////////////////////////////////////////////////FUY+FUY+FUY+SG9o////////////+fr6FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+Fkc/4+no////////////////////////////////////////////////FUY+FUY+FUY+SG9o////////////+fr6FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+VHhy////////////9Pb2HExEFUY+FUY+FUY+FUY+FUY+FUY+FUY+a4qFFUY+FUY+FUY+SG9o////////////+fr6FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+r8C9////////////q726FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+IE9HFUY+FUY+FUY+SG9o////////////+fr6FUY+FUY+FUY+FUY+FUY+FUY+FUY+JVJL+fr6////////////XH54FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+SG9o////////////+fr6FUY+FUY+FUY+FUY+FUY+FUY+FUY+eZWQ////////////8PPzG0pDFUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+SG9o////////////+fr6FUY+FUY+FUY+FUY+FUY+FUY+FUY+09zb////////////p7m2FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+",
+          "max_mean_error": 0.0,
+          "max_changed_fraction": 0.0
+        },
+        {
+          "rect": {
+            "x": 280,
+            "y": 24,
+            "w": 32,
+            "h": 23
+          },
+          "rgb_base64": "FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+YoN+qbu42+Ph7vLx+/z88PPz2OHfq726YIF8GUlBFUY+FUY+FUY+FUY+wc7M/////////////P39PmdgFUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+ws/N////////////////////////////////////////////////1t7dPWZfFUY+FUY+FUY+NmBZ+Pn5////////////xNHPFUY+FUY+FUY+FUY+FUY+FUY+FUY+XoB7////////////////////////////////////////////////////////7fDwNF9YFUY+FUY+FUY+h6Cc////////////////YoN+FUY+FUY+FUY+FUY+FUY+G0pD3+bl////////////z9nY////////////////////////////////////////////usnGFUY+FUY+FUY+G0pD2OHf////////////4+noHU1FFUY+FUY+FUY+FUY+gJuX/////////////P39Qmpj////qbu4S3FrJlRMGkpCKldPXoB72uLh/////////////f79KldPFUY+FUY+FUY+THJr/v7+////////////iaGdFUY+FUY+FUY+KVZP8vX0////////////lqypFUY+5evqFUY+FUY+FUY+FUY+FUY+FUY+MFtU+vv7////////////UndxFUY+FUY+FUY+FUY+o7az////////////9vj3MFtUFUY+FUY+o7az////////////4+noH05GFUY+/v7+iKGdIU9IFUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+JVJL6+/u////////////r8C9FUY+QGhi/f79////////////W314FUY+FUY+////////9vj3tcTCco+KMl1WFUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+aYiD////////////////TnNtxNHP////////////s8PAFUY+FUY+FUY+////////////////////////3uXkl62pR21nFUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+v8zK////////////7fDw////////////8vX0LVlSFUY+FUY+FUY+////////////////////////////////////zdjWQmpjFUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+NF9Y9/j4////////////////////////d5SPFUY+FUY+FUY+FUY+5evq////////////////////////////////////+vv7YYJ9FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+hZ+a////////////////////zdfVF0dAFUY+FUY+FUY+FUY+GUlBXoB7rL677vLx////////////////////////////9vj3M15XFUY+FUY+FUY+FUY+FUY+FUY+FUY+GkpC2ODe////////////+/z8P2dhFUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+F0dAR21niaGdz9nY////////////////////launFUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+fpmU////////////w9DOFUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+PGRe09zb////////////zdjWFUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+fJeT////////////ws7MFUY+FUY+FUY+FUY+FUY+FUY+Y4R+FUY+FUY+FUY+FUY+FUY+FUY+FUY+X4F7////////////5evqFUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+fJeT////////////ws7MFUY+FUY+FUY+FUY+FUY+FUY+1d7cIlBJFUY+FUY+FUY+FUY+FUY+FUY+layo////////////0NrYFUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+fJeT////////////ws7MFUY+FUY+FUY+FUY+FUY+FUY+////19/eaYmEMVxVG0pDH05GRmxmo7az////////////////oLSwFUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+fJeT////////////ws7MFUY+FUY+FUY+FUY+FUY+FUY+/////////////////////////////////////////////f79OGJbFUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+fJeT////////////ws7MFUY+FUY+FUY+FUY+FUY+FUY+////////////////////////////////////////////fpmUFUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+fJeT////////////ws7MFUY+FUY+FUY+FUY+FUY+FUY+////////////////////////////////////8fT0eJSQFUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+fJeT////////////ws7MFUY+FUY+FUY+FUY+FUY+FUY+XX95qbu42OHf8PPz+/z88PPz3+bluMfFeJSQKVZPFUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+fJeT////////////ws7MFUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+FUY+",
+          "max_mean_error": 0.0,
+          "max_changed_fraction": 0.0
+        }
+      ],
+      "keep_regions": [
+        {
+          "x": 54,
+          "y": 196,
+          "w": 840,
+          "h": 222
+        }
+      ],
+      "pii_regions": [
+        {
+          "x": 0,
+          "y": 120,
+          "w": 960,
+          "h": 76
+        }
+      ],
+      "face_region": null
+    }
+  ]
 }
