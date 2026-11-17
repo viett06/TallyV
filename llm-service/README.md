@@ -1,6 +1,6 @@
 # Qwen 4B nội bộ cho TallyV Assistant
 
-Package runtime này phục vụ Assistant, vẫn được giữ sau khi bỏ LLM văn bản khỏi đánh giá chấm công. Override chỉ đặt `ASSISTANT_*`, không cấu hình `EVIDENCE_VISION_*` hoặc chuẩn bị model Qwen3-VL cho ảnh bằng chứng. Xem [đường PII/VLM độc lập](../docs/vlm-evidence.md).
+Overlay `compose.llm.yaml` chạy Ollama với Qwen3.5 4B cho Assistant. Cấu hình tác vụ Excel nằm trong [hướng dẫn Assistant](../docs/assistant.md).
 
 Ollama trong Docker chạy Qwen3.5 4B bản Q4_K_M dạng GGUF, dùng cho metadata Excel dạng text. [Unsloth lượng tử hóa từ model Qwen và phân phối GGUF](https://huggingface.co/unsloth/Qwen3.5-4B-GGUF). Bước tải dùng revision cố định và kiểm tra SHA-256. Weights không vào Git hoặc Docker build context.
 
@@ -14,10 +14,10 @@ docker compose -f compose.yaml -f compose.llm.yaml --profile llm exec -T ollama 
 
 Khi container khởi động, nó kiểm tra file mount chỉ đọc ở `/models`, import model từ `Modelfile` và báo healthy sau khi đăng ký xong. Ollama lưu bản import trong volume `ollama_data`. Runtime dùng mạng nội bộ của TallyV và tắt tính năng Ollama Cloud. Nó không cần tải weights khi khởi động.
 
-Sau khi Ollama đã healthy, kết nối API và worker bằng cùng hai file Compose:
+Sau khi Ollama đã healthy, khởi động API và worker. Thêm overlay Outlook nếu dùng hộp thư hoặc Hybrid cần truy cập OpenRouter.
 
 ```sh
-docker compose -f compose.yaml -f compose.llm.yaml --profile llm up -d --build api worker
+docker compose -f compose.yaml -f compose.outlook.yaml -f compose.llm.yaml --profile llm up -d --build api worker
 ```
 
 Trong Docker, Assistant gọi `http://ollama:11434`. Để chạy workflow Hybrid, cấu hình runner sandbox và `ASSISTANT_PROCESSING_MODE=HYBRID` theo [hướng dẫn Assistant](../docs/assistant.md#hybrid-excel-workflow). Nếu chỉ cần Ollama cho các container trong dự án, không cần publish port.

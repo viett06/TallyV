@@ -17,8 +17,8 @@ export function HrWorkspace({ api, query, onOpenCase }: { api: Api; query: strin
       try { const next = await api('/hr/workspace?' + query); if (active) { setData(next); setError('') } }
       catch (e: any) { if (active) setError(e.message) }
     }
-    load(); const timer = window.setInterval(load, 5000)
-    return () => { active = false; window.clearInterval(timer) }
+    load()
+    return () => { active = false }
   }, [api, query])
   async function seed() {
     setBusy(true); setError(''); setNotice('')
@@ -31,9 +31,9 @@ export function HrWorkspace({ api, query, onOpenCase }: { api: Api; query: strin
   }
   const items: Item[] = data?.items || []
   return <section className="panel hr-workspace">
-    <div className="panel-heading"><div><h2><Server size={20}/>{t('integration.hr_tile')}</h2><p>{t('integration.hr_description')}</p></div><button className="btn secondary" onClick={seed} disabled={busy || !data?.connected || !items.length}><RefreshCw size={16} className={busy ? 'spin' : ''}/>{t('integration.seed')}</button></div>
-    <div className="integration-summary"><span className={'connection-dot ' + (data?.connected ? 'online' : '')}/><strong>{t(data?.connected ? 'integration.connected' : 'integration.disconnected')}</strong><span>{t('integration.record_count', { count: items.filter(i => i.record).length })}</span></div>
-    {(error || data?.error) && <p className="alert error" role="alert">{error || data?.error}</p>}
+    <div className="panel-heading"><div><h2><Server size={20}/>{t('integration.hr_tile')}</h2><p>{t('integration.hr_description')}</p></div><button className="btn secondary" onClick={seed} disabled={busy || !items.length}><RefreshCw size={16} className={busy ? 'spin' : ''}/>{t('integration.seed')}</button></div>
+    <div className="integration-summary"><span>{t('integration.record_count', { count: items.filter(i => i.record).length })}</span></div>
+    {error && <p className="alert error" role="alert">{error}</p>}
     {notice && <p className="alert success" role="status">{notice}</p>}
     <div className="table-scroll"><table><thead><tr><th>{t('integration.employee')}</th><th>{t('integration.work_day')}</th><th>{t('integration.check_in')}</th><th>{t('integration.check_out')}</th><th>{t('integration.day_status')}</th><th/></tr></thead>
       <tbody>{items.map(item => <tr key={item.case_id}><td><strong>{item.employee_name}</strong><small>{item.employee_id} · {item.department}</small><small>{item.case_code}</small></td><td>{item.work_date}<small>{item.shift || '—'}</small></td><td>{clock(item.record?.check_in)}</td><td>{clock(item.record?.check_out)}</td><td>{item.record ? <><strong>{dayStatus(item.record.day_status)}</strong><small>{t('integration.revision', { revision: item.record.revision })}</small></> : <span className="muted">{t('integration.not_seeded')}</span>}</td><td><button className="btn secondary small-btn" onClick={() => onOpenCase(item.case_id)}>{t('integration.review_correction')}<ArrowRight size={14}/></button></td></tr>)}</tbody></table></div>

@@ -1,17 +1,18 @@
-"""Application storage adapter for the standalone offline image preprocessor."""
+"""Manage masked evidence, OCR and release to VLM."""
 
 from hashlib import sha256
 from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from tallyv_image_preprocessing import ProfileSet, SanitizedImage, process
 
 from app.core.config import settings
 from app.core.time import utcnow
 from app.crud import cases as cases_crud
 from app.models import Attachment, CaseVersion, EvidenceFile, EvidencePrivacy
 from app.schema.evidence_privacy import ImageBatch
+from app.services import evidence_ocr
+from app.services.evidence_masking import OCR_APPLIED, ProfileSet, SanitizedImage, process
 from app.services.storage import read_bytes, store_bytes
 
 
@@ -40,12 +41,24 @@ def plan_import(db: Session, email_id: int) -> ImageBatch | None:
     return plan_batch(db, version_ids) if version_ids else None
 
 
-def _current(record, item, revision):
+def _ocr_ready(record: EvidencePrivacy) -> bool:
+    return bool(
+        record.status == "READY"
+        and record.reason == OCR_APPLIED
+        and record.profile_id
+        and record.kind in {"FACEID", "DEVICE_ERROR"}
+        and record.sanitized_path
+        and record.sanitized_sha256
+    )
+
+
+def _current(record: EvidencePrivacy | None, item: EvidenceFile | None, revision: str) -> bool:
     return bool(
         record
+        and item
         and record.source_sha256 == item.sha256
         and record.config_revision == revision
-        and record.status in {"READY", "MANUAL_REVIEW"}
+        and (record.status == "MANUAL_REVIEW" or (_ocr_ready(record) and record.sanitized_path != item.path))
     )
 
 
@@ -72,9 +85,11 @@ def preprocess_version(db: Session, version_id: int):
         if sha256(content).hexdigest() != item.sha256:
             record.status, record.reason, record.metrics = "MANUAL_REVIEW", "SOURCE_CHECKSUM_MISMATCH", {}
         else:
-            outcome = process(content, config)
+            outcome = process(content, config, detect_text=evidence_ocr.detect_text)
             record.status, record.reason, record.metrics = outcome.status, outcome.reason, outcome.metrics
-            if outcome.image:
+            if outcome.status == "READY":
+                if not isinstance(outcome.image, SanitizedImage) or outcome.reason != OCR_APPLIED:
+                    raise ValueError("A layout preview cannot be stored as OCR-processed evidence")
                 path, digest = store_bytes(outcome.image.content, ".png")
                 record.sanitized_path, record.sanitized_sha256 = path, digest
                 record.profile_id, record.kind = outcome.image.profile_id, outcome.image.kind
@@ -132,10 +147,8 @@ def ready_records(db: Session, evidence, *, revision=None):
 
 
 def load_image(record: EvidencePrivacy) -> SanitizedImage:
-    if record.status != "READY" or not record.sanitized_path or not record.sanitized_sha256:
-        raise ValueError("Only processed images may enter AI inference")
-    if record.kind not in {"FACEID", "DEVICE_ERROR"}:
-        raise ValueError("Unsupported evidence kind")
+    if not _ocr_ready(record):
+        raise ValueError("VLM requires an image with completed OCR and layout masking")
     try:
         content = read_bytes(record.sanitized_path)
     except Exception:

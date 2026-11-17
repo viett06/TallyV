@@ -130,13 +130,11 @@ def test_storage_setup_preserves_credentials_and_requires_explicit_activation(tm
     assert path.stat().st_mode & 0o777 == 0o600
 
 
-def test_offline_privacy_processing_writes_sanitized_s3_object_without_local_copy(context, s3, monkeypatch, tmp_path):
+def test_privacy_processing_writes_sanitized_s3_object_without_local_copy(context, s3, monkeypatch, tmp_path):
     import asyncio
 
-    from tallyv_image_preprocessing import ProfileSet
-    from tallyv_image_preprocessing.processor import decode
-
     from app.models import EvidencePrivacy
+    from app.services.evidence_masking import ProfileSet, decode
     from app.services.evidence_privacy import plan_batch
     from app.services.image_background import run_batch
     from tests.test_evidence_vlm import profile, sample
@@ -145,6 +143,7 @@ def test_offline_privacy_processing_writes_sanitized_s3_object_without_local_cop
     config = tmp_path / "profiles.json"
     config.write_text(ProfileSet(profiles=[profile()]).model_dump_json())
     monkeypatch.setattr(settings, "evidence_privacy_profiles_path", config)
+    monkeypatch.setattr("app.services.evidence_ocr.detect_text", lambda _: [])
     with sessions() as db:
         ingest(db, workbook([row()], {2: [sample()]}))
     with sessions() as db:

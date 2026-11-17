@@ -1,4 +1,4 @@
-"""Tables owned by the HTTP HR simulator, not SAP standard tables."""
+"""Demo attendance and historical receipts from the retired HR simulator."""
 
 from datetime import date, datetime
 

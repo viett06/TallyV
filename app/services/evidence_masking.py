@@ -1,9 +1,11 @@
 """Exact-layout masking. Unknown, ambiguous or unreadable inputs never pass."""
 
 from base64 import b64decode
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from hashlib import sha256
 from io import BytesIO
+from math import ceil, floor
 from typing import Literal
 
 import cv2
@@ -11,8 +13,10 @@ import numpy as np
 from PIL import Image, ImageOps
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-VERSION = "fixed-layout-v1"
+VERSION = "fixed-layout-ocr-v2"
 MAX_BYTES = 8 * 1024 * 1024
+OCR_APPLIED = "LAYOUT_AND_OCR_APPLIED"
+TextBox = tuple[float, float, float, float]
 
 
 class Rect(BaseModel):
@@ -24,6 +28,22 @@ class Rect(BaseModel):
 
     def slices(self):
         return slice(self.y, self.y + self.h), slice(self.x, self.x + self.w)
+
+    def contains(self, other: "Rect") -> bool:
+        return (
+            self.x <= other.x
+            and self.y <= other.y
+            and self.x + self.w >= other.x + other.w
+            and self.y + self.h >= other.y + other.h
+        )
+
+    def overlaps(self, other: "Rect") -> bool:
+        return (
+            self.x < other.x + other.w
+            and other.x < self.x + self.w
+            and self.y < other.y + other.h
+            and other.y < self.y + self.h
+        )
 
 
 class Anchor(BaseModel):
@@ -51,6 +71,7 @@ class LayoutProfile(BaseModel):
     keep_regions: list[Rect] = Field(min_length=1, max_length=16)
     pii_regions: list[Rect] = Field(min_length=1, max_length=16)
     face_region: Rect | None = None
+    keep_text_regions: list[Rect] = Field(default_factory=list, max_length=16)
 
     @model_validator(mode="after")
     def valid_geometry(self):
@@ -58,9 +79,14 @@ class LayoutProfile(BaseModel):
             raise ValueError("Profile exceeds pixel limit")
         if self.kind == "FACEID" and self.face_region is None:
             raise ValueError("FACEID requires a conservative fixed face region")
-        rectangles = [*self.keep_regions, *self.pii_regions, *(a.rect for a in self.anchors)]
+        if any(not any(keep.contains(text) for keep in self.keep_regions) for text in self.keep_text_regions):
+            raise ValueError("A permitted text region must be inside a keep region")
+        sensitive_regions = list(self.pii_regions)
         if self.face_region:
-            rectangles.append(self.face_region)
+            sensitive_regions.append(self.face_region)
+        if any(text.overlaps(sensitive) for text in self.keep_text_regions for sensitive in sensitive_regions):
+            raise ValueError("A permitted text region must not overlap a face or PII region")
+        rectangles = [*self.keep_regions, *sensitive_regions, *(a.rect for a in self.anchors)]
         for rect in rectangles:
             if rect.x + rect.w > self.width or rect.y + rect.h > self.height:
                 raise ValueError("Rectangle outside profile dimensions")
@@ -68,19 +94,11 @@ class LayoutProfile(BaseModel):
             patch = anchor.pixels()
             if anchor.rect.w * anchor.rect.h < 64 or float(patch.std(axis=(0, 1)).max()) < 5:
                 raise ValueError("Anchors must contain distinctive static UI detail")
-            for sensitive in [*self.pii_regions, *([self.face_region] if self.face_region else [])]:
-                a = anchor.rect
-                if (
-                    a.x < sensitive.x + sensitive.w
-                    and sensitive.x < a.x + a.w
-                    and a.y < sensitive.y + sensitive.h
-                    and sensitive.y < a.y + a.h
-                ):
-                    raise ValueError("Static anchors must not contain a PII or face region")
+            if any(anchor.rect.overlaps(region) for region in sensitive_regions):
+                raise ValueError("Static anchors must not contain a PII or face region")
         for i, first in enumerate(self.anchors):
             for second in self.anchors[i + 1 :]:
-                a, b = first.rect, second.rect
-                if a.x < b.x + b.w and b.x < a.x + a.w and a.y < b.y + b.h and b.y < a.y + a.h:
+                if first.rect.overlaps(second.rect):
                     raise ValueError("Static anchors must be distinct and non-overlapping")
         return self
 
@@ -102,7 +120,7 @@ class ProfileSet(BaseModel):
 
 
 @dataclass(frozen=True)
-class SanitizedImage:
+class LayoutImage:
     content: bytes = field(repr=False)
     sha256: str
     profile_id: str
@@ -110,11 +128,16 @@ class SanitizedImage:
 
 
 @dataclass(frozen=True)
+class SanitizedImage(LayoutImage):
+    """Image produced after both layout masking and local OCR."""
+
+
+@dataclass(frozen=True)
 class Outcome:
     status: Literal["READY", "MANUAL_REVIEW"]
     reason: str
     metrics: dict = field(default_factory=dict)
-    image: SanitizedImage | None = None
+    image: LayoutImage | None = None
 
 
 def decode(content: bytes) -> np.ndarray:
@@ -144,8 +167,31 @@ def _matches(rgb, profile):
     return True
 
 
-def process(content: bytes, profiles: ProfileSet) -> Outcome:
-    """No learned classifier, OCR, face detector, network, or source-file mutation."""
+def _encode(rgb: np.ndarray) -> bytes:
+    buffer = BytesIO()
+    Image.fromarray(rgb).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def _mask_text(rgb: np.ndarray, boxes: list[TextBox], keep: list[Rect]) -> None:
+    height, width = rgb.shape[:2]
+    for left, top, right, bottom in boxes:
+        if not (0 <= left < right <= 1 and 0 <= top < bottom <= 1):
+            raise ValueError("OCR returned invalid text coordinates")
+        x, y = max(0, floor(left * width) - 2), max(0, floor(top * height) - 2)
+        end_x, end_y = min(width, ceil(right * width) + 2), min(height, ceil(bottom * height) + 2)
+        rect = Rect(x=x, y=y, w=end_x - x, h=end_y - y)
+        if not any(region.contains(rect) for region in keep):
+            rgb[rect.slices()] = 0
+
+
+def process(
+    content: bytes,
+    profiles: ProfileSet,
+    *,
+    detect_text: Callable[[bytes], list[TextBox]] | None = None,
+) -> Outcome:
+    """Mask the known layout, then optionally redact OCR boxes on those pixels."""
     try:
         rgb = decode(content)
     except (ValueError, OSError, SyntaxError, Image.DecompressionBombError):
@@ -169,10 +215,17 @@ def process(content: bytes, profiles: ProfileSet) -> Outcome:
         output[rect.slices()] = 0
     if not np.any(output):
         return Outcome("MANUAL_REVIEW", "NO_VISIBLE_EVIDENCE", metrics)
-    buffer = BytesIO()
-    Image.fromarray(output).save(buffer, format="PNG")  # Fresh pixel array: no original metadata.
-    content = buffer.getvalue()
+    content = _encode(output)  # Fresh pixel array: no original metadata.
+    if len(content) > MAX_BYTES:
+        return Outcome("MANUAL_REVIEW", "OUTPUT_TOO_LARGE", metrics)
+    if detect_text is None:
+        preview = LayoutImage(content, sha256(content).hexdigest(), profile.id, profile.kind)
+        return Outcome("READY", "FIXED_REGIONS_APPLIED", metrics, preview)
+    _mask_text(output, detect_text(content), profile.keep_text_regions)
+    if not np.any(output):
+        return Outcome("MANUAL_REVIEW", "NO_VISIBLE_EVIDENCE", metrics)
+    content = _encode(output)
     if len(content) > MAX_BYTES:
         return Outcome("MANUAL_REVIEW", "OUTPUT_TOO_LARGE", metrics)
     image = SanitizedImage(content, sha256(content).hexdigest(), profile.id, profile.kind)
-    return Outcome("READY", "FIXED_REGIONS_APPLIED", metrics, image)
+    return Outcome("READY", OCR_APPLIED, metrics, image)

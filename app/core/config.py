@@ -4,7 +4,7 @@ from typing import Literal
 from urllib.parse import urlparse
 from uuid import UUID
 
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -28,15 +28,11 @@ class Settings(BaseSettings):
     mailpit_url: str = "http://127.0.0.1:8025"
     smtp_host: str = "127.0.0.1"
     smtp_port: int = 1025
-    evidence_privacy_profiles_path: Path = ROOT / "image-preprocessing/config/profiles.json"
-    evidence_vision_provider: Literal["ollama", "qwen_cloud", "openrouter"] = "ollama"
-    evidence_vision_url: str = "http://127.0.0.1:11434"
-    evidence_vision_model: Literal[
-        "qwen3-vl:2b", "qwen3-vl:4b", "qwen3-vl:2b-instruct", "qwen3-vl:4b-instruct", "qwen3-vl:8b-instruct"
-    ] = "qwen3-vl:2b-instruct"
-    evidence_vision_cloud_model: Literal["qwen3-vl-8b-instruct", "qwen3-vl-235b-a22b-instruct"] = "qwen3-vl-8b-instruct"
-    dashscope_api_key: SecretStr = SecretStr("")
-    dashscope_workspace_id: str = Field(default="", pattern=r"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)?$")
+    evidence_privacy_profiles_path: Path = ROOT / "config/evidence-privacy/profiles.json"
+    evidence_ocr_url: str = "http://127.0.0.1:8001"
+    ocr_service_api_token: SecretStr = SecretStr("")
+    # Reject obsolete explicit providers instead of silently redirecting their workloads.
+    evidence_vision_provider: Literal["openrouter"] = "openrouter"
     openrouter_api_key: SecretStr = SecretStr("")
     sync_interval: int = 30
     allowed_origins: str = "http://127.0.0.1:8000,http://localhost:8000,http://127.0.0.1:5173,http://localhost:5173"
@@ -52,8 +48,6 @@ class Settings(BaseSettings):
     outlook_redirect_uri: str = "http://localhost:8000/api/outlook/callback"
     outlook_sync_days: int = 90
     outlook_test_mode: bool = True
-    hr_mock_url: str = "http://127.0.0.1:8010"
-    hr_mock_api_key: SecretStr = SecretStr("")
 
     @model_validator(mode="after")
     def valid_storage(self):
@@ -150,12 +144,12 @@ class Settings(BaseSettings):
             raise ValueError("DEMO_PASSWORD must contain at least 10 characters")
         return value
 
-    @field_validator("mailpit_url", "hr_mock_url", "evidence_vision_url")
+    @field_validator("mailpit_url", "evidence_ocr_url")
     @classmethod
     def internal_url(cls, value):
         parsed = urlparse(value)
         host = parsed.hostname or ""
-        allowed = host in {"localhost", "mailpit", "ollama", "hr-mock", "host.docker.internal"}
+        allowed = host in {"localhost", "mailpit", "ocr", "ollama", "host.docker.internal"}
         try:
             address = ipaddress.ip_address(host)
             allowed = address.is_loopback or address.is_private

@@ -173,7 +173,7 @@ def test_no_external_endpoint_and_no_html_execution(context):
     with pytest.raises(ValidationError):
         Settings(mailpit_url="https://public.example.com")
     with pytest.raises(ValidationError):
-        Settings(evidence_vision_url="http://public.example.com")
+        Settings(evidence_ocr_url="http://public.example.com")
     sessions, client = context
 
     class UnsafeProvider:

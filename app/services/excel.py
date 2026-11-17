@@ -9,10 +9,10 @@ from zipfile import BadZipFile, ZipFile
 from openpyxl import load_workbook
 from openpyxl.drawing.spreadsheet_drawing import OneCellAnchor, TwoCellAnchor
 from PIL import Image
-from tallyv_image_preprocessing.processor import decode
 
 from app.core.attendance import HEADERS, PUNCH_IN, PUNCH_NA, PUNCH_OUT, SHEET_NAME
 from app.core.i18n import message
+from app.services.evidence_masking import decode
 
 KEYS = ["code", "employee_id", "name", "department", "date", "shift", "punch", "explanation", "evidence"]
 MAX_BYTES = 15 * 1024 * 1024

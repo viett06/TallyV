@@ -1,12 +1,14 @@
-./image-preprocessing
 alembic>=1.13,<2.0
 SQLAlchemy>=2.0,<3.0
 fastapi>=0.115,<1.0
 uvicorn[standard]>=0.30,<1.0
 psycopg[binary]>=3.2,<4.0
 pydantic-settings>=2.6,<3.0
+pydantic>=2.6,<3.0
 openpyxl>=3.1,<4.0
 Pillow>=11.0,<13.0
+numpy>=1.26,<3.0
+opencv-python-headless>=4.10,<5.0
 httpx>=0.28,<1.0
 itsdangerous>=2.2,<3.0
 pytest>=8.0,<10.0

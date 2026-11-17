@@ -1,13 +1,10 @@
 # Local API (e.g. PyCharm/uvicorn) with a Docker worker.
 # Share source and legacy/demo data; new attachments use the shared MinIO bucket.
-# docker compose -f compose.yaml -f compose.outlook.yaml -f compose.local.yaml up -d --no-deps hr-mock worker
+# docker compose -f compose.yaml -f compose.outlook.yaml -f compose.local.yaml up -d --no-deps ocr worker
 services:
-  hr-mock:
-    # Reuse the existing worker image; source mounts load the new simulator code.
-    image: tallyv-worker
-    volumes:
-      - ./app:/app/app:ro
-      - ./hr_mock_app.py:/app/hr_mock_app.py:ro
+  ocr:
+    ports: ["127.0.0.1:8001:8001"]
+    networks: [internal, access]
   worker:
     volumes:
       - ./app:/app/app:ro

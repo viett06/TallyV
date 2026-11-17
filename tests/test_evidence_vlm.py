@@ -12,15 +12,15 @@ from PIL import Image, ImageDraw, PngImagePlugin
 from pydantic import SecretStr, ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
-from tallyv_image_preprocessing import ProfileSet, process
-from tallyv_image_preprocessing.processor import decode
 
 from app import worker
 from app.core.config import settings
 from app.demo.generate import workbook
 from app.models import AnalysisResult, AttendanceCase, EvidenceFile, EvidencePrivacy, ProcessingJob
 from app.schema.evidence_privacy import AssessmentRequest
-from app.services import analysis, image_background
+from app.services import analysis, evidence_ocr, image_background
+from app.services.evidence_masking import ProfileSet, decode, process
+from app.services.evidence_ocr import detect_text
 from app.services.evidence_privacy import plan_batch
 from app.services.imports import synchronize
 from scripts.configure_evidence_privacy import build_profile
@@ -129,7 +129,8 @@ def pipeline(context, monkeypatch, tmp_path):
     path = tmp_path / "profiles.json"
     path.write_text(ProfileSet(profiles=[profile(), profile("DEVICE_ERROR")]).model_dump_json())
     monkeypatch.setattr(settings, "evidence_privacy_profiles_path", path)
-    monkeypatch.setattr(settings, "evidence_vision_provider", "openrouter")
+    monkeypatch.setattr(settings, "evidence_ocr_url", "http://127.0.0.1:8001")
+    monkeypatch.setattr("app.services.evidence_ocr.detect_text", lambda _: [])
     monkeypatch.setattr(settings, "openrouter_api_key", SecretStr("synthetic"))
     background = BackgroundCapture(image_background.run_batch)
     monkeypatch.setattr(image_background, "run_batch", background.collect)
@@ -142,10 +143,12 @@ def add_case(sessions, images):
         return db.scalar(select(AttendanceCase.id))
 
 
-def inference(monkeypatch, *, relation="SUPPORTS", refs=(1,), category="DEVICE_ERROR"):
+def inference(monkeypatch, *, relation="SUPPORTS", refs=(1,), category="DEVICE_ERROR", ocr=None):
     requests = []
 
     def handler(request):
+        if request.url.path == "/ocr" and ocr is not None:
+            return ocr(request)
         requests.append(request)
         import json
 
@@ -203,6 +206,107 @@ def test_api_defers_direct_background_call_without_image_queue(pipeline, monkeyp
     with sessions() as db:
         assert db.scalar(select(EvidencePrivacy)).sanitized_path == first_path
     assert len(requests) == 1  # Preprocessing-only never triggers another inference.
+
+
+def test_ocr_receives_masked_pixels_and_redacts_text_before_vlm(pipeline, monkeypatch):
+    sessions, client, path, background = pipeline
+    config = ProfileSet.model_validate_json(path.read_bytes())
+    config.profiles[0].keep_text_regions = [config.profiles[0].anchors[0].rect]
+    path.write_text(config.model_dump_json())
+    monkeypatch.setattr(evidence_ocr, "detect_text", detect_text)
+    case_id = add_case(sessions, [sample()])
+    ocr_calls = []
+
+    def detect(request):
+        assert request.url.host == "127.0.0.1"
+        content = request.content
+        start = content.index(b"\x89PNG\r\n\x1a\n")
+        end = content.index(b"IEND", start) + 8
+        candidate = decode(content[start:end])
+        assert not candidate[15:95, 25:90].any() and not candidate[100:].any()
+        assert candidate[42:55, 112:142].any()
+        ocr_calls.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "model": "PP-OCRv6_small_det",
+                "regions": [[112 / 160, 42 / 120, 142 / 160, 55 / 120], [4 / 160, 4 / 120, 9 / 160, 8 / 120]],
+            },
+        )
+
+    requests = inference(monkeypatch, ocr=detect)
+    assert client.post("/api/analysis").json() == {"queued": 1}
+    background.finish()
+    assert len(ocr_calls) == len(requests) == 1
+    part = loads(requests[0].content)["messages"][0]["content"][0]
+    sent = b64decode(part["image_url"]["url"].split(",", 1)[1])
+    pixels = decode(sent)
+    assert not pixels[42:55, 112:142].any()
+    assert np.array_equal(pixels[:12, :16], decode(sample())[:12, :16])
+    detail = client.get(f"/api/cases/{case_id}").json()
+    assert detail["versions"][0]["evidence"][0]["privacy"]["vlm_allowed"]
+
+
+def test_ocr_failure_blocks_vlm(pipeline, monkeypatch):
+    sessions, client, _, background = pipeline
+    case_id = add_case(sessions, [sample()])
+    requests = inference(monkeypatch)
+
+    def unavailable(_):
+        raise httpx.ConnectError("OCR unavailable")
+
+    monkeypatch.setattr(evidence_ocr, "detect_text", unavailable)
+    assert client.post("/api/analysis").json() == {"queued": 1}
+    background.finish()
+    assert not requests
+    detail = client.get(f"/api/cases/{case_id}").json()
+    assert detail["analysis"]["status"] == "FAILED"
+    assert not detail["versions"][0]["evidence"][0]["privacy"]["vlm_allowed"]
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        {"regions": []},
+        {"model": "unknown", "regions": []},
+        {"model": "PP-OCRv6_small_det", "regions": [[0.8, 0.1, 0.2, 0.4]]},
+    ],
+)
+def test_invalid_ocr_response_blocks_vlm(pipeline, monkeypatch, reply):
+    sessions, client, _, background = pipeline
+    add_case(sessions, [sample()])
+    monkeypatch.setattr(evidence_ocr, "detect_text", detect_text)
+    requests = inference(monkeypatch, ocr=lambda _: httpx.Response(200, json=reply))
+    assert client.post("/api/analysis").json() == {"queued": 1}
+    background.finish()
+    assert not requests
+    with sessions() as db:
+        assert db.scalar(select(EvidencePrivacy)).status == "ERROR"
+        assert db.scalar(select(AnalysisResult)).status == "FAILED"
+
+
+def test_layout_only_record_requires_ocr_before_preview_or_assessment(pipeline, monkeypatch):
+    sessions, client, _, background = pipeline
+    case_id = add_case(sessions, [sample()])
+    assert client.post("/api/privacy/preprocess").json() == {"queued": 1}
+    background.finish()
+    with sessions() as db:
+        record = db.scalar(select(EvidencePrivacy))
+        record.reason = "FIXED_REGIONS_APPLIED"
+        evidence_id = record.evidence_id
+        db.commit()
+
+    detail = client.get(f"/api/cases/{case_id}").json()
+    assert not detail["versions"][0]["evidence"][0]["privacy"]["vlm_allowed"]
+    assert client.get(f"/api/evidence/{evidence_id}/sanitized").status_code == 409
+
+    ocr_calls = []
+    monkeypatch.setattr(evidence_ocr, "detect_text", lambda content: ocr_calls.append(content) or [])
+    requests = inference(monkeypatch)
+    assert client.post("/api/analysis").json() == {"queued": 1}
+    background.finish()
+    assert len(ocr_calls) == len(requests) == 1
+    assert client.get(f"/api/evidence/{evidence_id}/sanitized").status_code == 200
 
 
 def test_unknown_images_have_no_vlm_release_or_override(pipeline, monkeypatch):
@@ -383,27 +487,6 @@ def test_email_import_submits_direct_background_work_after_commit(pipeline, monk
         assert db.scalar(select(EvidencePrivacy)).status == "READY"
         assert db.scalar(select(AnalysisResult)).status == "NOT_STARTED"
         assert not list(db.scalars(select(ProcessingJob).where(ProcessingJob.kind == "PREPROCESS_EVIDENCE")))
-
-
-def test_legacy_queued_analysis_uses_current_preprocessing_before_vlm(pipeline, monkeypatch):
-    sessions, _, _, background = pipeline
-    case_id = add_case(sessions, [sample()])
-    with sessions() as db:
-        for job in db.scalars(select(ProcessingJob)):
-            job.status = "DONE"
-        version_id = db.get(AttendanceCase, case_id).active_version_id
-        db.add(ProcessingJob(kind="ANALYZE", key="legacy-analysis", payload={"version_id": version_id}))
-        db.commit()
-    requests = inference(monkeypatch)
-    monkeypatch.setattr(image_background, "defer", lambda db, batch: background.batches.append((batch, sessions)))
-    assert worker.run_one(sessions)
-    assert not requests
-    assert len(background.batches) == 1 and background.batches[0][0].analyze
-    background.finish()
-    assert len(requests) == 1
-    with sessions() as db:
-        assert db.scalar(select(EvidencePrivacy)).status == "READY"
-        assert db.scalar(select(AnalysisResult)).status == "COMPLETED"
 
 
 def test_duplicate_delivery_does_not_call_model_twice(pipeline, monkeypatch):

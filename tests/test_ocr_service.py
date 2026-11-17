@@ -5,7 +5,7 @@ from PIL import Image
 from pydantic import SecretStr
 
 from app.demo.generate import picture
-from ocr_service.app import Line, OcrOutput, ServiceSettings, create_app
+from ocr_service.app import OcrOutput, ServiceSettings, create_app
 
 
 def test_service_configuration_uses_its_own_environment_prefix(monkeypatch, tmp_path):
@@ -20,12 +20,11 @@ class Runtime:
     def __init__(self, config):
         self.paths = []
         self.closed = False
-        self.model = config.model_name if config else "PP-OCRv6_small"
 
     def predict(self, path):
         assert path.is_file()
         self.paths.append(path)
-        return OcrOutput(model=self.model, lines=[Line(text="EMPLOYEE: MP001", score=0.95)])
+        return OcrOutput(regions=[(0.1, 0.1, 0.9, 0.2)])
 
     def close(self):
         self.closed = True
@@ -45,8 +44,8 @@ def test_service_loads_once_reuses_model_and_removes_request_files():
             response = client.post("/ocr", files={"file": ("../../private.png", picture("MP001", "2026-10-01"))})
             assert response.status_code == 200
             assert response.json() == {
-                "model": "PP-OCRv6_small",
-                "lines": [{"text": "EMPLOYEE: MP001", "score": 0.95}],
+                "model": "PP-OCRv6_small_det",
+                "regions": [[0.1, 0.1, 0.9, 0.2]],
             }
         assert len(instances) == 1 and len(instances[0].paths) == 2
         assert all(not path.exists() for path in instances[0].paths)
@@ -54,17 +53,17 @@ def test_service_loads_once_reuses_model_and_removes_request_files():
     assert instances[0].closed
 
 
-def test_medium_ocr_service_checks_credentials_before_inference():
-    config = ServiceSettings(model_variant="medium", api_token=SecretStr("test-token"))
+def test_ocr_service_checks_credentials_before_inference():
+    config = ServiceSettings(api_token=SecretStr("test-token"))
     runtime = Runtime(config)
     with TestClient(create_app(config, lambda _: runtime)) as client:
-        assert client.get("/health").json()["model"] == "PP-OCRv6_medium"
+        assert client.get("/health").json()["model"] == "PP-OCRv6_small_det"
         upload = {"file": ("image.png", picture("MP001", "2026-10-01"))}
         assert client.post("/ocr", files=upload).status_code == 401
         assert client.post("/ocr", files=upload, headers={"Authorization": "Bearer wrong"}).status_code == 401
         assert not runtime.paths
         response = client.post("/ocr", files=upload, headers={"Authorization": "Bearer test-token"})
-        assert response.status_code == 200 and response.json()["model"] == "PP-OCRv6_medium"
+        assert response.status_code == 200 and response.json()["model"] == "PP-OCRv6_small_det"
 
 
 def test_service_rejects_invalid_images_and_limits_before_inference():

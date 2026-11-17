@@ -70,7 +70,7 @@ def analyze(db, version_id, *, privacy_payload=None):
         current = {rule.category: rule.settings for rule in catalog_crud.list_rules(db, lock_for_analysis=True)}
         if current != policies:
             raise RuleSnapshotChanged("HR rules changed during visual assessment")
-        result.category, result.reason, result.model = output.category, output.reason, evidence_vision.model_id()
+        result.category, result.reason, result.model = output.category, output.reason, evidence_vision.MODEL_ID
         result.extracted = {
             **result.extracted,
             "visual_assessment": {

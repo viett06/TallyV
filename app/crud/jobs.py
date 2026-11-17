@@ -8,6 +8,9 @@ from sqlalchemy.orm import Session
 from app.core.time import utcnow
 from app.models import ProcessingJob
 
+ATTENDANCE_JOB_KINDS = ("SYNC", "IMPORT_EMAIL", "DEMO")
+ACTIVE_JOB_KINDS = (*ATTENDANCE_JOB_KINDS, "ASSISTANT_GENERATE")
+
 
 def enqueue(db: Session, kind: str, key: str, payload: dict, *, respect_backoff: bool = False) -> ProcessingJob:
     job = db.scalar(select(ProcessingJob).where(ProcessingJob.key == key))
@@ -35,7 +38,7 @@ def list_jobs(db: Session) -> list[ProcessingJob]:
     return list(
         db.scalars(
             select(ProcessingJob)
-            .where(ProcessingJob.kind != "ASSISTANT_GENERATE")
+            .where(ProcessingJob.kind.in_(ATTENDANCE_JOB_KINDS))
             .order_by(ProcessingJob.id.desc())
             .limit(100)
         )
@@ -47,6 +50,7 @@ def claim_next(db: Session) -> ProcessingJob | None:
     job = db.scalar(
         select(ProcessingJob)
         .where(
+            ProcessingJob.kind.in_(ACTIVE_JOB_KINDS),
             or_(
                 (ProcessingJob.status == "PENDING") & (ProcessingJob.available_at <= now),
                 (ProcessingJob.status == "RUNNING") & (ProcessingJob.locked_at < now - timedelta(minutes=5)),

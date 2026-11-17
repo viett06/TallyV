@@ -10,13 +10,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 RUN apt-get update && apt-get install -y --no-install-recommends fonts-dejavu-core && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY requirements.txt ./
-COPY image-preprocessing ./image-preprocessing
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --timeout 120 --retries 5 -r requirements.txt
 COPY app ./app
 COPY scripts ./scripts
+COPY config/evidence-privacy ./config/evidence-privacy
 COPY alembic ./alembic
-COPY alembic.ini main.py hr_mock_app.py ./
+COPY alembic.ini main.py ./
 COPY --from=frontend /web/dist ./frontend/dist
 RUN useradd --uid 10001 --create-home demo && mkdir -p /app/data && chown -R demo:demo /app/data
 USER demo

@@ -45,6 +45,21 @@ services:
       timeout: 3s
       retries: 20
     networks: [internal, access]
+  ocr:
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: ocr_service/Dockerfile
+    environment:
+      OCR_SERVICE_API_TOKEN: ${OCR_SERVICE_API_TOKEN:-}
+    volumes:
+      - type: bind
+        source: ${OCR_SERVICE_MODELS_DIR:-./ocr_service/models}
+        target: /models
+        read_only: true
+        bind:
+          create_host_path: false
+    networks: [internal]
   api:
     restart: unless-stopped
     build: .
@@ -55,14 +70,16 @@ services:
       S3_ENDPOINT_URL: "${S3_DOCKER_ENDPOINT_URL-http://minio:9000}"
       MINIO_ROOT_USER: ""
       MINIO_ROOT_PASSWORD: ""
-      HR_MOCK_URL: http://hr-mock:8010
+      EVIDENCE_OCR_URL: http://ocr:8001
+      OCR_SERVICE_API_TOKEN: ${OCR_SERVICE_API_TOKEN:-}
+      OUTLOOK_REDIRECT_URI: "${OUTLOOK_REDIRECT_URI:-http://localhost:${TALLYV_API_HOST_PORT:-8000}/api/outlook/callback}"
       ASSISTANT_OLLAMA_URL: "${ASSISTANT_DOCKER_OLLAMA_URL:-http://host.docker.internal:11435}"
     command: ["sh", "-c", "alembic upgrade head && python -m scripts.seed_catalog && uvicorn main:app --host 0.0.0.0 --port 8000 --no-access-log"]
     depends_on:
       db: {condition: service_healthy}
       minio-init: {condition: service_completed_successfully}
     ports: ["127.0.0.1:${TALLYV_API_HOST_PORT:-8000}:8000"]
-    volumes: ["file_data:/app/data", "./image-preprocessing/config:/app/image-preprocessing/config:ro"]
+    volumes: ["file_data:/app/data", "./config/evidence-privacy:/app/config/evidence-privacy:ro"]
     networks: [internal, access]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
@@ -79,31 +96,14 @@ services:
       S3_ENDPOINT_URL: "${S3_DOCKER_ENDPOINT_URL-http://minio:9000}"
       MINIO_ROOT_USER: ""
       MINIO_ROOT_PASSWORD: ""
-      HR_MOCK_URL: http://hr-mock:8010
+      EVIDENCE_OCR_URL: http://ocr:8001
+      OCR_SERVICE_API_TOKEN: ${OCR_SERVICE_API_TOKEN:-}
       ASSISTANT_OLLAMA_URL: "${ASSISTANT_DOCKER_OLLAMA_URL:-http://host.docker.internal:11435}"
     command: ["python", "-m", "app.worker"]
     depends_on:
       api: {condition: service_healthy}
       minio-init: {condition: service_completed_successfully}
-    volumes: ["file_data:/app/data", "./image-preprocessing/config:/app/image-preprocessing/config:ro"]
-    networks: [internal]
-  hr-mock:
-    restart: unless-stopped
-    build: .
-    env_file: .env
-    environment:
-      DATABASE_URL: postgresql+psycopg://tallyv:${POSTGRES_PASSWORD}@db:5432/tallyv
-      MINIO_ROOT_USER: ""
-      MINIO_ROOT_PASSWORD: ""
-    command: ["uvicorn", "hr_mock_app:app", "--host", "0.0.0.0", "--port", "8010", "--no-access-log"]
-    depends_on:
-      db: {condition: service_healthy}
-    ports: ["127.0.0.1:8010:8010"]
-    networks: [internal, access]
-  ollama:
-    image: ollama/ollama:0.13.5
-    profiles: [llm]
-    volumes: ["ollama_data:/root/.ollama"]
+    volumes: ["file_data:/app/data", "./config/evidence-privacy:/app/config/evidence-privacy:ro"]
     networks: [internal]
 networks:
   access: {}
@@ -112,5 +112,4 @@ networks:
 volumes:
   postgres_data:
   file_data:
-  ollama_data:
   object_data:

@@ -28,7 +28,7 @@ RUN python -m pip install 'paddlepaddle==3.3.0' \
         --index-url https://www.paddlepaddle.org.cn/packages/stable/cpu/ \
     && python -m pip install -r requirements-ocr.txt \
     && python -m pip check \
-    && python -c "import paddle; from paddleocr import PaddleOCR; print(paddle.__version__)"
+    && python -c "import paddle; from paddleocr import TextDetection; print(paddle.__version__)"
 
 COPY ocr_service/__init__.py ocr_service/app.py ./ocr_service/
 

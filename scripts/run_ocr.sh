@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-ocr_python="${OCR_PYTHON:-$repo_dir/../tallyv-ocr/venv/bin/python}"
+ocr_python="${OCR_PYTHON:-$repo_dir/.venv-ocr/bin/python}"
 
 if [[ ! -x "$ocr_python" ]]; then
     echo "OCR Python not found. Set OCR_PYTHON to the Python in your OCR virtual environment." >&2

@@ -2,11 +2,10 @@
 
 import json
 
-from tallyv_image_preprocessing import SanitizedImage
-
 from app.schema.analysis import VisualAssessment
 from app.services import evidence_vision
 from app.services.assessment_input import prepare_input
+from app.services.evidence_masking import SanitizedImage
 
 PROMPT = """Đối chiếu trực tiếp từng ảnh với explanation_signals và chọn loại nguyên nhân
 theo hr_rules. Ảnh được xếp đúng thứ tự evidence_ref bắt đầu từ 1. Mặt và chữ đã được

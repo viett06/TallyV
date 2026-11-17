@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronLeft, ChevronRight, FileSpreadsheet, Layers, Mail, RefreshCw, Search, Sparkles } from 'lucide-react'
+import { ChevronLeft, ChevronRight, FileSpreadsheet, Layers, Mail, RefreshCw, Search } from 'lucide-react'
 import { t } from '../i18n'
 import './JobsQueue.css'
 
@@ -17,8 +17,7 @@ export type ProcessingJob = {
 const groups = [
   { id: 'SYNC', title: 'jobs.group_sync', description: 'jobs.group_sync_description', icon: Mail },
   { id: 'IMPORT_EMAIL', title: 'jobs.group_import', description: 'jobs.group_import_description', icon: FileSpreadsheet },
-  { id: 'ANALYZE', title: 'jobs.group_analysis', description: 'jobs.group_analysis_description', icon: Sparkles },
-  { id: 'OTHER', title: 'jobs.group_other', description: 'jobs.group_other_description', icon: Layers },
+  { id: 'DEMO', title: 'jobs.group_demo', description: 'jobs.group_demo_description', icon: Layers },
 ] as const
 type GroupId = typeof groups[number]['id']
 const statuses = [
@@ -30,16 +29,13 @@ const statuses = [
 ] as const
 const pageSize = 8
 const groupOf = (job: ProcessingJob): GroupId =>
-  job.kind === 'SYNC' || job.kind === 'IMPORT_EMAIL' || job.kind === 'ANALYZE' ? job.kind : 'OTHER'
+  job.kind === 'SYNC' || job.kind === 'IMPORT_EMAIL' ? job.kind : 'DEMO'
 const priority: Record<string, number> = { RUNNING: 0, PENDING: 1, FAILED: 2, DONE: 3 }
 
 function jobTitle(job: ProcessingJob) {
   if (job.kind === 'IMPORT_EMAIL') return t('jobs.reference_email', { id: job.payload.email_id })
-  if (job.kind === 'ANALYZE') return t('jobs.reference_version', { id: job.payload.version_id })
-  if (job.kind === 'INDEX_EVIDENCE') return t('jobs.index_evidence', { id: job.payload.version_id })
   if (job.kind === 'SYNC') return t('jobs.sync_reference')
   if (job.kind === 'DEMO') return t('jobs.send_demo_mail')
-  if (job.kind === 'HR_SUBMIT') return t('integration.hr_submit_job')
   return job.kind
 }
 
