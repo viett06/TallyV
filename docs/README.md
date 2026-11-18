@@ -11,3 +11,4 @@ Bắt đầu từ [README](../README.md) để cài đặt, chạy demo và ki�
 | Chạy phân tích dữ liệu hoặc soạn báo cáo | [Assistant](assistant.md) |
 | Nhập PDF và công bố cho nhân viên | [Chatbot quy định](chatbot-retrieval.md) |
 | Tìm mã, kiểm tra triển khai và xử lý lỗi nền | [Kiến trúc](architecture.md) |
+| Hiểu core tổng hợp, đánh giá, phân loại công và thiết kế cập nhật SAP tự động | [Core chấm công và SAP](core-attendance-sap.md) |

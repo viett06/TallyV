@@ -1,5 +1,7 @@
 # Kiến trúc và vận hành
 
+Luồng nghiệp vụ từ tiếp nhận, tổng hợp, đánh giá và phân loại đến thiết kế tự động cập nhật SAP được mô tả trong [Kiến trúc core chấm công và SAP](core-attendance-sap.md).
+
 | Vị trí | Trách nhiệm |
 | --- | --- |
 | `main.py`, `app/api/` | FastAPI, xác thực, routes, tải file và phục vụ giao diện |
